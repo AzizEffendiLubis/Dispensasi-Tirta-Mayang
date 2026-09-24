@@ -23,6 +23,16 @@
     Export PDF hanya menyertakan pengajuan berstatus <strong>Disetujui</strong> sesuai filter tahun/bulan yang sedang aktif di bawah.
 </p>
 
+@if ($belumDijadikanSuratCount > 0)
+<div class="card p-4 mb-6 flex items-center gap-3 border-amber-200 bg-amber-50">
+    <i class="fas fa-triangle-exclamation text-amber-500"></i>
+    <p class="text-sm text-amber-700">
+        Ada <strong>{{ $belumDijadikanSuratCount }}</strong> dispensasi yang sudah disetujui namun
+        belum dijadikan e-dispensasi.
+    </p>
+</div>
+@endif
+
 {{-- Filter --}}
 <form method="GET" class="card p-4 mb-6 flex gap-3 flex-wrap items-end">
     <div class="flex-1 min-w-[160px]">
@@ -43,8 +53,25 @@
             @endforeach
         </select>
     </div>
+    <div class="flex-1 min-w-[220px]">
+        <label class="text-xs text-ink-soft mb-1 block">Status Surat</label>
+        <label class="field-input flex items-center gap-2.5 cursor-pointer select-none">
+            <input
+                type="checkbox"
+                name="belum_surat"
+                value="1"
+                class="peer sr-only"
+                @checked($belumSurat)
+                onchange="this.form.requestSubmit()"
+            >
+            <span class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full bg-slate-200 transition-colors peer-checked:bg-accent">
+                <span class="inline-block h-3.5 w-3.5 translate-x-1 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4.5"></span>
+            </span>
+            <span class="text-sm text-ink">Belum dibuat surat e-dispensasi</span>
+        </label>
+    </div>
     <button class="btn btn-primary">Terapkan Filter</button>
-    @if ($tahun || $bulan)
+    @if ($tahun || $bulan || $belumSurat)
     <a href="{{ route('dispensasi.index') }}" class="btn btn-outline">Reset</a>
     @endif
 </form>
@@ -63,16 +90,18 @@
             </tr>
         </thead>
         <tbody>
-            @forelse ($dispensasis as $d)
+            @forelse ($dispensasis as $kelompok)
             @php
-                $waktuLabel = $d->waktu_dispensasi;
-                $statusLabel = match ($d->status_pengajuan) {
+                $acuan = $kelompok->acuan;
+                $jumlahLain = $kelompok->baris->count() - 1;
+                $statusLabel = match ($kelompok->statusSeragam) {
                     'menunggu_persetujuan' => 'Menunggu',
                     'disetujui' => 'Disetujui',
                     'ditolak' => 'Ditolak',
-                    default => ucfirst($d->status_pengajuan),
+                    null => 'Status Beragam',
+                    default => ucfirst($kelompok->statusSeragam),
                 };
-                $statusClass = match ($d->status_pengajuan) {
+                $statusClass = match ($kelompok->statusSeragam) {
                     'menunggu_persetujuan' => 'badge-menunggu',
                     'disetujui' => 'badge-disetujui',
                     'ditolak' => 'badge-ditolak',
@@ -80,19 +109,39 @@
                 };
             @endphp
             <tr>
-                <td class="mono-data text-ink-soft">{{ $d->nomor_dispensasi }}</td>
-                <td>
-                    <p class="font-medium text-ink">{{ $d->pegawai->nama_pegawai }}</p>
-                    @if ($d->subdepartemen)
-                    <p class="text-xs text-ink-soft">{{ $d->subdepartemen->nama_subdepartemen }}</p>
+                <td class="mono-data text-ink-soft">
+                    {{ $acuan->nomor_dispensasi }}
+                    @if ($jumlahLain > 0)
+                    <span class="block text-xs text-ink-soft" title="{{ $kelompok->nomor_list }}">
+                        +{{ $jumlahLain }} nomor lainnya
+                    </span>
                     @endif
                 </td>
-                <td>{{ $d->tanggal_dispensasi->format('d M Y') }}</td>
-                <td class="text-ink-soft">{{ $waktuLabel }}</td>
-                <td><span class="badge {{ $statusClass }}">{{ $statusLabel }}</span></td>
-                <td class="text-ink-soft text-xs">{{ $d->tanggal_pengajuan->format('d M Y') }}</td>
+                <td>
+                    <p class="font-medium text-ink">{{ $acuan->pegawai->nama_pegawai }}</p>
+                    @if ($acuan->subdepartemen)
+                    <p class="text-xs text-ink-soft">{{ $acuan->subdepartemen->nama_subdepartemen }}</p>
+                    @endif
+                </td>
+                <td>{{ $acuan->tanggal_dispensasi->format('d M Y') }}</td>
+                <td class="text-ink-soft">
+                    @foreach ($kelompok->baris as $baris)
+                    <span class="badge badge-default">{{ $baris->waktu_dispensasi }}</span>
+                    @endforeach
+                </td>
+                <td>
+                    <span class="badge {{ $statusClass }}">{{ $statusLabel }}</span>
+                    @if ($kelompok->keteranganSurat)
+                    <span class="block mt-1 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-0.5 w-max">
+                        {{ $kelompok->keteranganSurat }}
+                    </span>
+                    @endif
+                </td>
+                <td class="text-ink-soft text-xs">
+                    {{ \Carbon\Carbon::parse($kelompok->tanggal_pengajuan)->format('d M Y') }}
+                </td>
                 <td class="text-right whitespace-nowrap">
-                    <a href="{{ route('dispensasi.show', $d) }}" class="btn btn-sm btn-outline">
+                    <a href="{{ route('dispensasi.show', $acuan) }}" class="btn btn-sm btn-outline">
                         <i class="fas fa-eye"></i>
                     </a>
                 </td>
@@ -113,7 +162,7 @@
 <div class="flex items-center justify-between flex-wrap gap-3 mt-3">
     <p class="text-xs text-ink-soft">
         Menampilkan {{ $dispensasis->firstItem() }}–{{ $dispensasis->lastItem() }}
-        dari {{ $dispensasis->total() }} pengajuan.
+        dari {{ $dispensasis->total() }} kelompok pengajuan.
     </p>
     {{ $dispensasis->links() }}
 </div>

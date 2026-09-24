@@ -4,7 +4,8 @@ namespace App\Http\Controllers\Sdm;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreUserRequest;
-use App\Models\Departemen;
+use App\Models\Jabatan;
+use App\Models\UnitOrganisasi;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -14,29 +15,18 @@ class UserController extends Controller
     private const ROLE_TERSEDIA = [
         'admin_sdm',
         'admin_departemen',
-        'manajer_departemen',
-        'senior_manajer_sekper',
-        'kepala_spi',
-        'direktur_teknik',
-        'direktur_administrasi_keuangan',
-        'direktur_utama',
-    ];
-
-    private const ROLE_DENGAN_DEPARTEMEN = [
-        'admin_departemen',
-        'manajer_departemen',
-        'senior_manajer_sekper',
-        'kepala_spi',
+        'approver',
     ];
 
     public function index(Request $request)
     {
         $search = $request->input('search');
         $role = $request->input('role');
-        $departemenId = $request->input('departemen_id');
+        $jabatanId = $request->input('jabatan_id');
+        $unitOrganisasiId = $request->input('unit_organisasi_id');
         $status = $request->input('status'); // 'aktif' | 'nonaktif'
 
-        $query = User::with(['departemen']);
+        $query = User::with(['jabatan', 'unitOrganisasi']);
 
         if ($search) {
             $query->where(function ($q) use ($search) {
@@ -49,8 +39,12 @@ class UserController extends Controller
             $query->where('role', $role);
         }
 
-        if ($departemenId) {
-            $query->where('departemen_id', $departemenId);
+        if ($jabatanId) {
+            $query->where('jabatan_id', $jabatanId);
+        }
+
+        if ($unitOrganisasiId) {
+            $query->where('unit_organisasi_id', $unitOrganisasiId);
         }
 
         if ($status === 'aktif') {
@@ -60,15 +54,25 @@ class UserController extends Controller
         }
 
         $users = $query->orderBy('name')->paginate(20)->withQueryString();
-        $departemens = Departemen::orderBy('nama_departemen')->get();
 
-        return view('sdm.pengguna.index', compact('users', 'departemens', 'search', 'role', 'departemenId', 'status'));
+        return view('sdm.pengguna.index', [
+            'users'            => $users,
+            'jabatans'         => Jabatan::urut()->get(),
+            'unitOrganisasis'  => UnitOrganisasi::active()->orderBy('nama')->get(),
+            'search'           => $search,
+            'role'             => $role,
+            'jabatanId'        => $jabatanId,
+            'unitOrganisasiId' => $unitOrganisasiId,
+            'status'           => $status,
+        ]);
     }
 
     public function create()
     {
-        $departemens = Departemen::orderBy('nama_departemen')->get();
-        return view('sdm.pengguna.create', compact('departemens'));
+        return view('sdm.pengguna.create', [
+            'jabatans'        => Jabatan::urut()->get(),
+            'unitOrganisasis' => UnitOrganisasi::active()->orderBy('tingkat')->orderBy('nama')->get(),
+        ]);
     }
 
     public function store(StoreUserRequest $request)
@@ -76,6 +80,7 @@ class UserController extends Controller
         $data = $request->validated();
         $data['password'] = Hash::make($data['password']);
         $data['is_active'] = $request->boolean('is_active', true);
+        $data['is_plt'] = $request->boolean('is_plt');
         $data = $this->bersihkanFieldSesuaiRole($data);
 
         User::create($data);
@@ -85,8 +90,11 @@ class UserController extends Controller
 
     public function edit(User $pengguna)
     {
-        $departemens = Departemen::orderBy('nama_departemen')->get();
-        return view('sdm.pengguna.edit', ['user' => $pengguna, 'departemens' => $departemens]);
+        return view('sdm.pengguna.edit', [
+            'user'            => $pengguna,
+            'jabatans'        => Jabatan::urut()->get(),
+            'unitOrganisasis' => UnitOrganisasi::active()->orderBy('tingkat')->orderBy('nama')->get(),
+        ]);
     }
 
     public function update(StoreUserRequest $request, User $pengguna)
@@ -100,6 +108,7 @@ class UserController extends Controller
         }
 
         $data['is_active'] = $request->boolean('is_active');
+        $data['is_plt'] = $request->boolean('is_plt');
         $data = $this->bersihkanFieldSesuaiRole($data);
 
         $pengguna->update($data);
@@ -115,10 +124,14 @@ class UserController extends Controller
 
     private function bersihkanFieldSesuaiRole(array $data): array
     {
-        if (! in_array($data['role'], self::ROLE_DENGAN_DEPARTEMEN, true)) {
-            $data['departemen_id'] = null;
+        if ($data['role'] !== 'approver') {
+            $data['jabatan_id'] = null;
+            $data['is_plt'] = false;
         }
-        $data['subdepartemen_id'] = null;
+
+        if ($data['role'] === 'admin_sdm') {
+            $data['unit_organisasi_id'] = null;
+        }
 
         return $data;
     }

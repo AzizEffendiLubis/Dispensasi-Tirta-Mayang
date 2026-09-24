@@ -6,22 +6,16 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class Dispensasi extends Model
 {
     use HasFactory;
 
-    private const DEPARTEMEN_TEKNIK = ['PWS', 'REN', 'PRD', 'DIST'];
-
-    private const DEPARTEMEN_ADMINISTRASI_KEUANGAN = ['SDM', 'BSN1', 'BSN2', 'KEU', 'PEL'];
-
-    private const DEPARTEMEN_MANDIRI = ['PGD', 'IT'];
-
     protected $fillable = [
         'nomor_dispensasi',
         'pegawai_id',
-        'departemen_id',
-        'subdepartemen_id',
+        'unit_organisasi_id',
         'admin_departemen_id',
         'tanggal_pengajuan',
         'tanggal_dispensasi',
@@ -29,17 +23,26 @@ class Dispensasi extends Model
         'keterangan',
         'bukti_pendukung',
         'status_pengajuan',
+        'approver_saat_ini_id',
         'diproses_oleh_id',
         'catatan_persetujuan',
         'tanggal_keputusan',
+        'nomor_surat_dispensasi',
+        'tanggal_surat_dispensasi',
+        'dicetak_oleh_id',
+        'ditujukan_kepada_id',
+        'token_verifikasi',
+        'dicetak_pada',
     ];
 
     protected function casts(): array
     {
         return [
-            'tanggal_pengajuan'  => 'date',
-            'tanggal_dispensasi' => 'date',
-            'tanggal_keputusan'  => 'datetime',
+            'tanggal_pengajuan'        => 'date',
+            'tanggal_dispensasi'       => 'date',
+            'tanggal_keputusan'        => 'datetime',
+            'tanggal_surat_dispensasi' => 'date',
+            'dicetak_pada'             => 'datetime',
         ];
     }
 
@@ -48,14 +51,9 @@ class Dispensasi extends Model
         return $this->belongsTo(Pegawai::class);
     }
 
-    public function departemen(): BelongsTo
+    public function unitOrganisasi(): BelongsTo
     {
-        return $this->belongsTo(Departemen::class);
-    }
-
-    public function subdepartemen(): BelongsTo
-    {
-        return $this->belongsTo(Subdepartemen::class);
+        return $this->belongsTo(UnitOrganisasi::class);
     }
 
     public function adminDepartemen(): BelongsTo
@@ -63,9 +61,24 @@ class Dispensasi extends Model
         return $this->belongsTo(User::class, 'admin_departemen_id');
     }
 
+    public function approverSaatIni(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'approver_saat_ini_id');
+    }
+
     public function diprosesOleh(): BelongsTo
     {
         return $this->belongsTo(User::class, 'diproses_oleh_id');
+    }
+
+    public function dicetakOleh(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'dicetak_oleh_id');
+    }
+
+    public function ditujukanKepada(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'ditujukan_kepada_id');
     }
 
     public function scopeMenungguPersetujuan($query)
@@ -83,14 +96,9 @@ class Dispensasi extends Model
         return $query->where('status_pengajuan', 'ditolak');
     }
 
-    public function scopeDepartemen($query, int $departemenId)
+    public function scopeUnit($query, int $unitOrganisasiId)
     {
-        return $query->where('departemen_id', $departemenId);
-    }
-
-    public function scopeSubdepartemen($query, int $subdepartemenId)
-    {
-        return $query->where('subdepartemen_id', $subdepartemenId);
+        return $query->where('unit_organisasi_id', $unitOrganisasiId);
     }
 
     public function scopePegawai($query, int $pegawaiId)
@@ -115,43 +123,51 @@ class Dispensasi extends Model
         return $query->whereBetween('tanggal_dispensasi', [$start, $end]);
     }
 
+    public function scopeBelumDijadikanSurat($query)
+    {
+        return $query->where('status_pengajuan', 'disetujui')
+            ->whereNull('nomor_surat_dispensasi');
+    }
+
+    /**
+     * Daftar pengajuan yang saat ini menunggu keputusan dari user
+     * tertentu. Sumber kebenarannya kolom approver_saat_ini_id, yang
+     * diisi resolver AlurApproval saat pengajuan dibuat/dieskalasi —
+     * bukan dihitung ulang dari departemen + role seperti dulu, karena
+     * alur approval sekarang bisa diubah admin kapan saja per unit.
+     */
     public function scopeUntukPemberiKeputusan($query, User $user)
     {
-        return match ($user->role) {
-            'direktur_teknik' => $query->whereHas(
-                'departemen',
-                fn ($q) => $q->whereIn('kode_departemen', self::DEPARTEMEN_TEKNIK)
-            ),
+        return $query
+            ->where('approver_saat_ini_id', $user->id)
+            ->where('status_pengajuan', 'menunggu_persetujuan');
+    }
 
-            'direktur_utama' => $query->where(function ($q) {
-                $q->whereHas('departemen', fn ($qq) => $qq->where('kode_departemen', 'SEK'))
-                  ->whereHas('pegawai', fn ($qq) => $qq->where('posisi', 'senior_manajer_sekper'));
-            })->orWhere(function ($q) {
-                $q->whereHas('departemen', fn ($qq) => $qq->where('kode_departemen', 'SPI'))
-                  ->whereHas('pegawai', fn ($qq) => $qq->where('posisi', 'kepala_spi'));
-            })->orWhere(function ($q) {
-                $q->whereHas('departemen', fn ($qq) => $qq->whereIn('kode_departemen', self::DEPARTEMEN_MANDIRI))
-                  ->whereHas('pegawai', fn ($qq) => $qq->where('posisi', 'manajer'));
-            }),
+    public function scopeSatuKelompokSurat($query, self $acuan)
+    {
+        return $query->where('unit_organisasi_id', $acuan->unit_organisasi_id)
+            ->where('diproses_oleh_id', $acuan->diproses_oleh_id)
+            ->where('tanggal_dispensasi', $acuan->tanggal_dispensasi)
+            ->where('status_pengajuan', 'disetujui')
+            ->whereNull('nomor_surat_dispensasi');
+    }
 
-            'direktur_administrasi_keuangan' => $query
-                ->whereHas('departemen', fn ($q) => $q->whereIn('kode_departemen', self::DEPARTEMEN_ADMINISTRASI_KEUANGAN))
-                ->whereHas('pegawai', fn ($q) => $q->whereIn('posisi', ['manajer', 'senior_manajer_bisnis', 'senior_manajer_keuangan_pelanggan'])),
+    public function scopeSatuSurat($query, string $nomorSurat)
+    {
+        return $query->where('nomor_surat_dispensasi', $nomorSurat);
+    }
 
-            'senior_manajer_sekper' => $query
-                ->where('departemen_id', $user->departemen_id)
-                ->whereHas('pegawai', fn ($q) => $q->whereIn('posisi', ['staf', 'asisten_manajer_bidang'])),
+    public function scopeSatuPengajuanMenunggu($query, self $acuan)
+    {
+        return $query->where('pegawai_id', $acuan->pegawai_id)
+            ->where('tanggal_dispensasi', $acuan->tanggal_dispensasi)
+            ->where('status_pengajuan', 'menunggu_persetujuan');
+    }
 
-            'kepala_spi' => $query
-                ->where('departemen_id', $user->departemen_id)
-                ->whereHas('pegawai', fn ($q) => $q->whereIn('posisi', ['staf', 'sekretaris_spi'])),
-
-            'manajer_departemen' => $query
-                ->where('departemen_id', $user->departemen_id)
-                ->whereHas('pegawai', fn ($q) => $q->whereIn('posisi', ['staf', 'asisten_manajer_bidang'])),
-
-            default => $query->whereRaw('1 = 0'),
-        };
+    public function scopeSatuKelompokPegawaiTanggal($query, self $acuan)
+    {
+        return $query->where('pegawai_id', $acuan->pegawai_id)
+            ->where('tanggal_dispensasi', $acuan->tanggal_dispensasi);
     }
 
     public function isMenungguPersetujuan(): bool
@@ -174,45 +190,57 @@ class Dispensasi extends Model
         return in_array($this->status_pengajuan, ['disetujui', 'ditolak']);
     }
 
-    public function pemberiKeputusan(): ?User
+    public function isSudahDicetak(): bool
     {
-        $departemen = $this->departemen ?? $this->departemen()->first();
-        $kode = $departemen?->kode_departemen;
-        $posisi = ($this->pegawai ?? $this->pegawai()->first())?->posisi;
+        return $this->nomor_surat_dispensasi !== null;
+    }
 
-        if ($kode === null) {
+    public function keteranganStatusSurat(): ?string
+    {
+        if (! $this->isDisetujui()) {
             return null;
         }
 
-        if (in_array($kode, self::DEPARTEMEN_TEKNIK, true)) {
-            return User::role('direktur_teknik')->active()->first();
+        return $this->isSudahDicetak() ? null : 'Belum dijadikan e-dispensasi';
+    }
+
+    public function tentukanApproverAwal(): ?User
+    {
+        $pegawai = $this->pegawai ?? $this->pegawai()->first();
+        $approver = $pegawai?->carikanApprover(1);
+
+        $this->approver_saat_ini_id = $approver?->id;
+
+        return $approver;
+    }
+
+    /**
+     * Eskalasi pengajuan ke tahap approval berikutnya (kalau ada
+     * baris alur_approvals dengan urutan lebih tinggi untuk unit +
+     * jabatan pengaju yang sama). Dipakai mis. saat approver saat ini
+     * berhalangan/nonaktif.
+     */
+    public function eskalasi(int $urutanBerikutnya): ?User
+    {
+        $pegawai = $this->pegawai ?? $this->pegawai()->first();
+        $approver = $pegawai?->carikanApprover($urutanBerikutnya);
+
+        if ($approver) {
+            $this->approver_saat_ini_id = $approver->id;
         }
 
-        if ($kode === 'SEK') {
-            return $posisi === 'senior_manajer_sekper'
-                ? User::role('direktur_utama')->active()->first()
-                : User::role('senior_manajer_sekper')->where('departemen_id', $departemen->id)->active()->first();
+        return $approver;
+    }
+
+    public function labelInstansiPenyetuju(): string
+    {
+        $unit = $this->unitOrganisasi ?? $this->unitOrganisasi()->first();
+
+        if (! $unit) {
+            return '-';
         }
 
-        if ($kode === 'SPI') {
-            return $posisi === 'kepala_spi'
-                ? User::role('direktur_utama')->active()->first()
-                : User::role('kepala_spi')->where('departemen_id', $departemen->id)->active()->first();
-        }
-
-        if (in_array($kode, self::DEPARTEMEN_MANDIRI, true)) {
-            return $posisi === 'manajer'
-                ? User::role('direktur_utama')->active()->first()
-                : User::role('manajer_departemen')->where('departemen_id', $departemen->id)->active()->first();
-        }
-
-        if (in_array($kode, self::DEPARTEMEN_ADMINISTRASI_KEUANGAN, true)) {
-            return in_array($posisi, ['manajer', 'senior_manajer_bisnis', 'senior_manajer_keuangan_pelanggan'], true)
-                ? User::role('direktur_administrasi_keuangan')->active()->first()
-                : User::role('manajer_departemen')->where('departemen_id', $departemen->id)->active()->first();
-        }
-
-        return null;
+        return trim(Str::upper($unit->labelTingkat()) . ' ' . Str::upper($unit->nama));
     }
 
     public static function generateNomor(): string
@@ -220,15 +248,12 @@ class Dispensasi extends Model
         return DB::transaction(function () {
             $tahun = now()->format('Y');
             $bulan = now()->format('m');
-
             $last = self::whereYear('tanggal_pengajuan', $tahun)
                         ->whereMonth('tanggal_pengajuan', $bulan)
                         ->lockForUpdate()
                         ->orderBy('id', 'desc')
                         ->first();
-
             $urutan = $last ? intval(substr($last->nomor_dispensasi, -5)) + 1 : 1;
-
             return sprintf('DISP/%s/%s/%05d', $tahun, $bulan, $urutan);
         });
     }

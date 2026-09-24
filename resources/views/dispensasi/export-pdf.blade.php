@@ -21,9 +21,9 @@
         ];
 
         // Judul mengikuti filter tahun/bulan yang dipilih Admin Departemen
-        // saat export (bukan tanggal cetak), dan nama departemennya sendiri
-        // ($namaDepartemen dari Auth::user()->departemen — otomatis sesuai
-        // departemen Admin yang sedang login, bukan teks tetap "SDM").
+        // saat export (bukan tanggal cetak), dan nama unitnya sendiri
+        // ($namaDepartemen dari Auth::user()->unitOrganisasi — otomatis
+        // sesuai unit Admin yang sedang login, bukan teks tetap "SDM").
         if ($bulan && $tahun) {
             $judul = 'Dispensasi ' . $namaDepartemen . ' ' . strtoupper($namaBulanIndonesia[$bulan]) . ' ' . $tahun;
         } elseif ($tahun) {
@@ -43,7 +43,7 @@
             <tr>
                 <th>Nomor</th>
                 <th>Pegawai</th>
-                <th>Subdepartemen</th>
+                <th>Unit Organisasi</th>
                 <th>Tanggal Dispensasi</th>
                 <th>Waktu</th>
                 <th>Diputuskan Oleh</th>
@@ -55,7 +55,7 @@
             <tr>
                 <td>{{ $d->nomor_dispensasi }}</td>
                 <td>{{ $d->pegawai->nama_pegawai }}</td>
-                <td>{{ $d->subdepartemen?->nama_subdepartemen ?? '-' }}</td>
+                <td>{{ $d->unitOrganisasi->nama }}</td>
                 <td>{{ $d->tanggal_dispensasi->format('d M Y') }}</td>
                 <td>{{ $d->waktu_dispensasi }}</td>
                 <td>{{ $d->diprosesOleh?->name ?? '-' }}</td>

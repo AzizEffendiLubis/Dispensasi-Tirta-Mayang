@@ -33,31 +33,54 @@
         @error('tanggal_dispensasi') <p class="field-error">{{ $message }}</p> @enderror
     </div>
 
-    <div class="mb-5">
-        <label class="field-label">Waktu Dispensasi</label>
-        <p class="text-xs text-ink-soft mb-2">Bisa pilih lebih dari satu — tiap waktu yang dicentang akan jadi pengajuan terpisah.</p>
-        <div class="flex flex-wrap gap-4">
+    <div class="mb-6">
+        <label class="field-label">Waktu Dispensasi, Keterangan &amp; Bukti</label>
+        <p class="text-xs text-ink-soft mb-3">
+            Centang waktu yang diajukan, lalu isi keterangan dan (opsional) unggah bukti pendukung
+            masing-masing — tiap waktu akan jadi pengajuan terpisah dengan bukti sendiri-sendiri.
+        </p>
+
+        <div class="space-y-3">
             @foreach (['T', 'TBO', 'TBI', 'CP'] as $val)
-            <label class="inline-flex items-center gap-2 text-sm text-ink">
-                <input type="checkbox" name="waktu_dispensasi[]" value="{{ $val }}" class="h-4 w-4"
-                       @checked(in_array($val, old('waktu_dispensasi', [])))>
-                {{ $val }}
-            </label>
+            @php $dicentang = in_array($val, old('waktu_dispensasi', [])); @endphp
+            <div class="border border-line rounded-lg p-3">
+                <label class="inline-flex items-center gap-2 text-sm font-medium text-ink mb-2">
+                    <input type="checkbox"
+                           name="waktu_dispensasi[]"
+                           value="{{ $val }}"
+                           class="h-4 w-4 js-waktu-checkbox"
+                           data-target="detail-field-{{ $val }}"
+                           @checked($dicentang)>
+                    {{ $val }}
+                </label>
+
+                <div id="detail-field-{{ $val }}" class="js-waktu-detail space-y-2 {{ $dicentang ? '' : 'hidden' }}">
+                    <div>
+                        <textarea name="keterangan[{{ $val }}]"
+                                  rows="2"
+                                  class="field-input"
+                                  placeholder="Keterangan untuk waktu {{ $val }}">{{ old("keterangan.$val") }}</textarea>
+                        @error('keterangan.' . $val) <p class="field-error">{{ $message }}</p> @enderror
+                    </div>
+
+                    <div>
+                        <label class="text-xs text-ink-soft mb-1 block" for="bukti-field-{{ $val }}">
+                            Bukti Pendukung {{ $val }}
+                            <span class="font-normal">(opsional, PDF/JPG/PNG maks 2MB)</span>
+                        </label>
+                        <input type="file"
+                               id="bukti-field-{{ $val }}"
+                               name="bukti_pendukung[{{ $val }}]"
+                               class="field-input js-bukti-field"
+                               data-persist-key="bukti_pendukung_{{ $val }}"
+                               accept=".pdf,.jpg,.jpeg,.png">
+                        @error('bukti_pendukung.' . $val) <p class="field-error">{{ $message }}</p> @enderror
+                    </div>
+                </div>
+            </div>
             @endforeach
         </div>
         @error('waktu_dispensasi') <p class="field-error">{{ $message }}</p> @enderror
-    </div>
-
-    <div class="mb-5">
-        <label class="field-label" for="keterangan">Keterangan</label>
-        <textarea id="keterangan" name="keterangan" rows="4" class="field-input" required>{{ old('keterangan') }}</textarea>
-        @error('keterangan') <p class="field-error">{{ $message }}</p> @enderror
-    </div>
-
-    <div class="mb-6">
-        <label class="field-label" for="bukti_pendukung">Bukti Pendukung <span class="text-ink-soft font-normal">(opsional, PDF/JPG/PNG maks 2MB)</span></label>
-        <input type="file" id="bukti_pendukung" name="bukti_pendukung" class="field-input" accept=".pdf,.jpg,.jpeg,.png">
-        @error('bukti_pendukung') <p class="field-error">{{ $message }}</p> @enderror
     </div>
 
     <div class="flex gap-2">
@@ -65,4 +88,79 @@
         <a href="{{ route('dispensasi.index') }}" class="btn btn-outline">Batal</a>
     </div>
 </form>
+
+<script>
+    document.querySelectorAll('.js-waktu-checkbox').forEach(function (checkbox) {
+        var field = document.getElementById(checkbox.dataset.target);
+        if (!field) return;
+
+        function sync() {
+            field.classList.toggle('hidden', !checkbox.checked);
+        }
+
+        checkbox.addEventListener('change', sync);
+        sync();
+    });
+
+    (function () {
+        var hasErrors = @json($errors->any());
+        var fileInputs = document.querySelectorAll('.js-bukti-field[data-persist-key]');
+
+        function readAsDataUrl(file) {
+            return new Promise(function (resolve, reject) {
+                var reader = new FileReader();
+                reader.onload = function () { resolve(reader.result); };
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+        }
+
+        function dataUrlToFile(dataUrl, filename, mime) {
+            return fetch(dataUrl)
+                .then(function (res) { return res.blob(); })
+                .then(function (blob) { return new File([blob], filename, { type: mime }); });
+        }
+
+        fileInputs.forEach(function (input) {
+            var key = 'dispensasi_' + input.dataset.persistKey;
+
+            if (hasErrors) {
+                var saved = sessionStorage.getItem(key);
+                if (saved) {
+                    try {
+                        var parsed = JSON.parse(saved);
+                        dataUrlToFile(parsed.data, parsed.name, parsed.type).then(function (file) {
+                            var dt = new DataTransfer();
+                            dt.items.add(file);
+                            input.files = dt.files;
+                        });
+                    } catch (e) {
+                        sessionStorage.removeItem(key);
+                    }
+                }
+            } else {
+                sessionStorage.removeItem(key);
+            }
+
+            input.addEventListener('change', function () {
+                var file = input.files[0];
+                if (!file) {
+                    sessionStorage.removeItem(key);
+                    return;
+                }
+                readAsDataUrl(file).then(function (dataUrl) {
+                    try {
+                        sessionStorage.setItem(key, JSON.stringify({
+                            name: file.name,
+                            type: file.type,
+                            data: dataUrl,
+                        }));
+                    } catch (e) {
+                        sessionStorage.removeItem(key);
+                    }
+                });
+            });
+        });
+    })();
+</script>
 @endsection

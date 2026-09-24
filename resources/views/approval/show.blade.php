@@ -4,7 +4,7 @@
 
 @section('content')
 @php
-    $waktuLabel = $dispensasi->waktu_dispensasi;
+    $kelompokTampil = $kelompokPengajuan->isNotEmpty() ? $kelompokPengajuan : collect([$dispensasi]);
     $statusLabel = match ($dispensasi->status_pengajuan) {
         'menunggu_persetujuan' => 'Menunggu Persetujuan',
         'disetujui' => 'Disetujui',
@@ -26,6 +26,9 @@
     <div class="flex items-center gap-3 flex-wrap mt-2">
         <h1 class="font-display text-3xl text-ink">{{ $dispensasi->nomor_dispensasi }}</h1>
         <span class="badge {{ $statusClass }}">{{ $statusLabel }}</span>
+        @if ($kelompokTampil->count() > 1)
+        <span class="badge badge-default">{{ $kelompokTampil->count() }} waktu dalam satu pengajuan</span>
+        @endif
     </div>
 </div>
 
@@ -45,16 +48,11 @@
                 </div>
                 <div>
                     <dt class="text-xs text-ink-soft mb-0.5">Jabatan</dt>
-                    <dd class="text-ink">{{ $dispensasi->pegawai->jabatan }}</dd>
+                    <dd class="text-ink">{{ $dispensasi->pegawai->jabatan?->nama ?? '-' }}</dd>
                 </div>
                 <div>
-                    <dt class="text-xs text-ink-soft mb-0.5">Departemen</dt>
-                    <dd class="text-ink">
-                        {{ $dispensasi->departemen->nama_departemen }}
-                        @if ($dispensasi->subdepartemen)
-                        <span class="text-ink-soft text-xs">/ {{ $dispensasi->subdepartemen->nama_subdepartemen }}</span>
-                        @endif
-                    </dd>
+                    <dt class="text-xs text-ink-soft mb-0.5">Unit Organisasi</dt>
+                    <dd class="text-ink">{{ $dispensasi->unitOrganisasi->nama }}</dd>
                 </div>
             </dl>
         </div>
@@ -62,14 +60,10 @@
         {{-- Detail pengajuan --}}
         <div class="card p-6">
             <h3 class="font-semibold text-ink mb-4">Detail Pengajuan</h3>
-            <dl class="grid sm:grid-cols-2 gap-4 text-sm mb-4">
+            <dl class="grid sm:grid-cols-2 gap-4 text-sm mb-5">
                 <div>
                     <dt class="text-xs text-ink-soft mb-0.5">Tanggal Dispensasi</dt>
                     <dd class="text-ink">{{ $dispensasi->tanggal_dispensasi->format('d M Y') }}</dd>
-                </div>
-                <div>
-                    <dt class="text-xs text-ink-soft mb-0.5">Waktu</dt>
-                    <dd class="text-ink">{{ $waktuLabel }}</dd>
                 </div>
                 <div>
                     <dt class="text-xs text-ink-soft mb-0.5">Diajukan Oleh</dt>
@@ -79,21 +73,43 @@
                     <dt class="text-xs text-ink-soft mb-0.5">Tanggal Pengajuan</dt>
                     <dd class="text-ink">{{ $dispensasi->tanggal_pengajuan->format('d M Y') }}</dd>
                 </div>
+                <div>
+                    <dt class="text-xs text-ink-soft mb-0.5">Jumlah Waktu Diajukan</dt>
+                    <dd class="text-ink">{{ $kelompokTampil->count() }}</dd>
+                </div>
             </dl>
-            <div class="mb-4">
-                <dt class="text-xs text-ink-soft mb-1">Keterangan</dt>
-                <dd class="text-ink whitespace-pre-line">{{ $dispensasi->keterangan ?: '-' }}</dd>
+
+            <p class="text-xs text-ink-soft mb-2">Rincian per waktu:</p>
+            <div class="table-scroll-wrapper">
+                <table class="table-pro">
+                    <thead>
+                        <tr>
+                            <th>Nomor</th>
+                            <th>Waktu</th>
+                            <th>Keterangan</th>
+                            <th>Bukti</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach ($kelompokTampil as $baris)
+                        <tr>
+                            <td class="mono-data text-ink-soft">{{ $baris->nomor_dispensasi }}</td>
+                            <td><span class="badge badge-default">{{ $baris->waktu_dispensasi }}</span></td>
+                            <td class="text-ink whitespace-pre-line">{{ $baris->keterangan ?: '-' }}</td>
+                            <td>
+                                @if ($baris->bukti_pendukung)
+                                <a href="{{ asset('storage/' . $baris->bukti_pendukung) }}" target="_blank" class="btn btn-sm btn-outline">
+                                    <i class="fas fa-paperclip"></i> Lihat
+                                </a>
+                                @else
+                                <span class="text-ink-soft text-xs">-</span>
+                                @endif
+                            </td>
+                        </tr>
+                        @endforeach
+                    </tbody>
+                </table>
             </div>
-            @if ($dispensasi->bukti_pendukung)
-            <div>
-                <dt class="text-xs text-ink-soft mb-1">Bukti Pendukung</dt>
-                <dd>
-                    <a href="{{ asset('storage/' . $dispensasi->bukti_pendukung) }}" target="_blank" class="btn btn-sm btn-outline">
-                        <i class="fas fa-paperclip"></i> Lihat Lampiran
-                    </a>
-                </dd>
-            </div>
-            @endif
         </div>
     </div>
 
@@ -101,7 +117,14 @@
     <div class="lg:col-span-1">
         <div class="card p-6">
             @if ($dispensasi->status_pengajuan === 'menunggu_persetujuan')
-            <h3 class="font-semibold text-ink mb-4">Keputusan</h3>
+            <h3 class="font-semibold text-ink mb-1">Keputusan</h3>
+            @if ($kelompokTampil->count() > 1)
+            <p class="text-xs text-ink-soft mb-4">
+                Keputusan ini berlaku untuk seluruh {{ $kelompokTampil->count() }} waktu di atas sekaligus.
+            </p>
+            @else
+            <div class="mb-4"></div>
+            @endif
 
             <div class="mb-4" x-data="{ confirmOpen: false }">
                 <form id="approve-form" method="POST" action="{{ route('approval.approve', $dispensasi) }}">
@@ -126,7 +149,13 @@
                                 <i class="fas fa-check"></i>
                             </div>
                             <h3 class="font-bold text-ink mb-1">Setujui {{ $dispensasi->nomor_dispensasi }}?</h3>
-                            <p class="text-sm text-ink-soft mb-5">Keputusan ini akan langsung tercatat dan pemohon akan diberi tahu.</p>
+                            <p class="text-sm text-ink-soft mb-5">
+                                @if ($kelompokTampil->count() > 1)
+                                Seluruh {{ $kelompokTampil->count() }} waktu dalam pengajuan ini akan ikut disetujui dan pemohon akan diberi tahu.
+                                @else
+                                Keputusan ini akan langsung tercatat dan pemohon akan diberi tahu.
+                                @endif
+                            </p>
                             <div class="flex gap-2 justify-center">
                                 <button type="button" @click="confirmOpen = false" class="btn btn-outline">Batal</button>
                                 <button type="submit" form="approve-form" class="btn btn-primary">Ya, Setujui</button>
@@ -160,7 +189,13 @@
                                 <i class="fas fa-xmark"></i>
                             </div>
                             <h3 class="font-bold text-ink mb-1">Tolak {{ $dispensasi->nomor_dispensasi }}?</h3>
-                            <p class="text-sm text-ink-soft mb-5">Keputusan ini akan langsung tercatat dan pemohon akan diberi tahu.</p>
+                            <p class="text-sm text-ink-soft mb-5">
+                                @if ($kelompokTampil->count() > 1)
+                                Seluruh {{ $kelompokTampil->count() }} waktu dalam pengajuan ini akan ikut ditolak dan pemohon akan diberi tahu.
+                                @else
+                                Keputusan ini akan langsung tercatat dan pemohon akan diberi tahu.
+                                @endif
+                            </p>
                             <div class="flex gap-2 justify-center">
                                 <button type="button" @click="confirmOpen = false" class="btn btn-outline">Batal</button>
                                 <button type="submit" form="reject-form" class="btn btn-danger">Ya, Tolak</button>

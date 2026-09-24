@@ -15,28 +15,27 @@ return new class extends Migration
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password');
             $table->rememberToken();
-            $table->enum('role', [
-                'admin_sdm',
-                'admin_departemen',
-                'manajer_departemen',
-                'senior_manajer_sekper',
-                'kepala_spi',
-                'direktur_teknik',
-                'direktur_administrasi_keuangan',
-                'direktur_utama',
-            ]);
-            $table->foreignId('departemen_id')->nullable()->constrained('departemens')->restrictOnDelete();
-            $table->foreignId('subdepartemen_id')->nullable()->constrained('subdepartemens')->restrictOnDelete();
 
-            // Status akun
+            $table->enum('role', ['admin_sdm', 'admin_departemen', 'approver']);
+
+            $table->foreignId('jabatan_id')
+                  ->nullable()
+                  ->constrained('jabatans')
+                  ->restrictOnDelete();
+
+            $table->foreignId('unit_organisasi_id')
+                  ->nullable()
+                  ->constrained('unit_organisasis')
+                  ->nullOnDelete();
+
+            $table->boolean('is_plt')->default(false);
             $table->boolean('is_active')->default(true);
             $table->boolean('must_change_password')->default(false);
             $table->timestamps();
 
-            // Index untuk performa query
             $table->index(['role', 'is_active']);
-            $table->index(['departemen_id', 'role']);
-            $table->index(['subdepartemen_id', 'role']);
+            $table->index(['jabatan_id', 'unit_organisasi_id']);
+            $table->index(['unit_organisasi_id', 'jabatan_id']);
         });
     }
 

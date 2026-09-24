@@ -19,11 +19,11 @@
         </select>
     </div>
     <div class="flex-1 min-w-[180px]">
-        <label class="text-xs text-ink-soft mb-1 block">Departemen</label>
-        <select name="departemen_id" class="field-input">
-            <option value="">Semua Departemen</option>
-            @foreach ($departemens as $d)
-            <option value="{{ $d->id }}" @selected($departemenId == $d->id)>{{ $d->nama_departemen }}</option>
+        <label class="text-xs text-ink-soft mb-1 block">Unit Organisasi</label>
+        <select name="unit_organisasi_id" class="field-input">
+            <option value="">Semua Unit Organisasi</option>
+            @foreach ($unitOrganisasis as $u)
+            <option value="{{ $u->id }}" @selected($unitOrganisasiId == $u->id)>{{ $u->nama }}</option>
             @endforeach
         </select>
     </div>
@@ -37,7 +37,7 @@
         </select>
     </div>
     <button class="btn btn-primary">Terapkan Filter</button>
-    @if ($departemenId || $status)
+    @if ($unitOrganisasiId || $status)
     <a href="{{ route('sdm.dashboard') }}" class="btn btn-outline">Reset</a>
     @endif
 </form>
@@ -62,18 +62,18 @@
     </div>
 </div>
 
-{{-- Chart per bulan & per departemen --}}
+{{-- Chart per bulan & per unit organisasi --}}
 <div class="grid lg:grid-cols-2 gap-4 mb-6">
     <div class="card p-6">
         <h3 class="font-semibold text-ink mb-4">Dispensasi per Bulan — {{ $tahun }}</h3>
         <canvas id="chartBulan" height="220"></canvas>
     </div>
     <div class="card p-6">
-        <h3 class="font-semibold text-ink mb-4">Dispensasi Berdasarkan Departemen</h3>
-        @if ($perDepartemen->isEmpty())
+        <h3 class="font-semibold text-ink mb-4">Dispensasi Berdasarkan Unit Organisasi</h3>
+        @if ($perUnit->isEmpty())
         <p class="text-sm text-ink-soft py-8 text-center">Belum ada data.</p>
         @else
-        <canvas id="chartDepartemen" height="220"></canvas>
+        <canvas id="chartUnit" height="220"></canvas>
         @endif
     </div>
 </div>
@@ -81,24 +81,27 @@
 {{-- Pengajuan menggantung --}}
 <div class="card overflow-hidden mb-6">
     <div class="px-6 py-4 border-b border-line flex items-center justify-between">
-        <h3 class="font-semibold text-ink">Perlu Perhatian — Menunggu Lebih dari 3 Hari</h3>
+        <div>
+            <h3 class="font-semibold text-ink">Perlu Perhatian — Menunggu Lebih dari 3 Hari</h3>
+            <p class="text-xs text-ink-soft mt-0.5">Selalu lintas tahun, tidak mengikuti filter Periode / Tahun di atas.</p>
+        </div>
         <span class="badge badge-menunggu">{{ $pengajuanMenggantung->count() }}</span>
     </div>
     <div class="table-scroll-wrapper" style="border-radius:0; border:0;">
         <table class="table-pro">
             <thead>
-                <tr><th>Nomor</th><th>Pegawai</th><th>Departemen</th><th>Lama Menunggu</th></tr>
+                <tr><th>Nomor</th><th>Pegawai</th><th>Unit Organisasi</th><th>Lama Menunggu</th></tr>
             </thead>
             <tbody>
                 @forelse ($pengajuanMenggantung as $p)
                 <tr>
                     <td class="mono-data text-ink-soft">{{ $p['nomor'] }}</td>
                     <td class="font-medium">{{ $p['pegawai'] }}</td>
-                    <td class="text-ink-soft">{{ $p['departemen'] }}</td>
+                    <td class="text-ink-soft">{{ $p['unit'] }}</td>
                     <td class="text-[#C1483A] font-medium">{{ $p['hari_menunggu'] }} hari</td>
                 </tr>
                 @empty
-                <tr><td colspan="4" class="text-center text-ink-soft py-10">Tidak ada pengajuan yang menggantung lama. 👍</td></tr>
+                <tr><td colspan="4" class="text-center text-ink-soft py-10">Tidak ada pengajuan yang menggantung lama.</td></tr>
                 @endforelse
             </tbody>
         </table>
@@ -113,7 +116,7 @@
     <div class="table-scroll-wrapper" style="border-radius:0; border:0;">
         <table class="table-pro">
             <thead>
-                <tr><th>Nomor</th><th>Pegawai</th><th>Departemen</th><th>Tanggal</th><th>Diajukan</th><th>Status</th></tr>
+                <tr><th>Nomor</th><th>Pegawai</th><th>Unit Organisasi</th><th>Tanggal</th><th>Diajukan</th><th>Status</th></tr>
             </thead>
             <tbody>
                 @forelse ($terbaru as $d)
@@ -134,7 +137,7 @@
                 <tr>
                     <td class="mono-data text-ink-soft">{{ $d->nomor_dispensasi }}</td>
                     <td class="font-medium">{{ $d->pegawai?->nama_pegawai ?? '-' }}</td>
-                    <td class="text-ink-soft">{{ $d->departemen?->nama_departemen ?? '-' }}</td>
+                    <td class="text-ink-soft">{{ $d->unitOrganisasi?->nama ?? '-' }}</td>
                     <td>{{ optional($d->tanggal_dispensasi)->format('d M Y') ?? '-' }}</td>
                     <td class="text-ink-soft text-xs">{{ $d->created_at->diffForHumans() }}</td>
                     <td><span class="badge {{ $statusClass }}">{{ $statusLabel }}</span></td>
@@ -177,14 +180,14 @@
         }
     });
 
-    @if ($perDepartemen->isNotEmpty())
-    new Chart(document.getElementById('chartDepartemen'), {
+    @if ($perUnit->isNotEmpty())
+    new Chart(document.getElementById('chartUnit'), {
         type: 'bar',
         data: {
-            labels: @json($perDepartemen->pluck('nama')),
+            labels: @json($perUnit->pluck('nama')),
             datasets: [{
                 label: 'Jumlah Pengajuan',
-                data: @json($perDepartemen->pluck('total')),
+                data: @json($perUnit->pluck('total')),
                 backgroundColor: primary,
                 borderRadius: 6,
                 barThickness: 18,

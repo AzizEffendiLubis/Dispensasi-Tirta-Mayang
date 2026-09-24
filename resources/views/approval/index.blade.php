@@ -6,7 +6,9 @@
 <div class="mb-8">
     <p class="text-xs font-semibold tracking-widest text-accent uppercase mb-1">Persetujuan</p>
     <h1 class="font-display text-3xl text-ink">Menunggu Keputusan Anda</h1>
-    <p class="text-sm text-ink-soft mt-1">Pengajuan dispensasi yang perlu Anda setujui atau tolak.</p>
+    <p class="text-sm text-ink-soft mt-1">
+        Pengajuan dispensasi yang perlu Anda setujui atau tolak.
+    </p>
 </div>
 
 <div class="table-scroll-wrapper">
@@ -15,7 +17,7 @@
             <tr>
                 <th>Nomor</th>
                 <th>Pegawai</th>
-                <th>Departemen</th>
+                <th>Unit Organisasi</th>
                 <th>Tanggal Dispensasi</th>
                 <th>Waktu</th>
                 <th>Diajukan</th>
@@ -23,30 +25,37 @@
             </tr>
         </thead>
         <tbody>
-            @forelse ($dispensasis as $d)
+            @forelse ($kelompokPengajuan as $kelompok)
             @php
-                $waktuLabel = $d->waktu_dispensasi;
+                $acuan = $kelompok->acuan;
+                $jumlahLain = $kelompok->baris->count() - 1;
             @endphp
             <tr>
-                <td class="mono-data text-ink-soft">{{ $d->nomor_dispensasi }}</td>
-                <td>
-                    <p class="font-medium text-ink">{{ $d->pegawai->nama_pegawai }}</p>
-                    <p class="text-xs text-ink-soft">{{ $d->pegawai->jabatan }}</p>
-                </td>
-                <td class="text-ink-soft">
-                    {{ $d->departemen->nama_departemen }}
-                    @if ($d->subdepartemen)
-                    <span class="text-xs">/ {{ $d->subdepartemen->nama_subdepartemen }}</span>
+                <td class="mono-data text-ink-soft">
+                    {{ $acuan->nomor_dispensasi }}
+                    @if ($jumlahLain > 0)
+                    <span class="block text-xs text-ink-soft"
+                          title="{{ $kelompok->baris->pluck('nomor_dispensasi')->implode(', ') }}">
+                        +{{ $jumlahLain }} nomor lainnya
+                    </span>
                     @endif
                 </td>
-                <td>{{ $d->tanggal_dispensasi->format('d M Y') }}</td>
-                <td class="text-ink-soft">{{ $waktuLabel }}</td>
+                <td>
+                    <p class="font-medium text-ink">{{ $acuan->pegawai->nama_pegawai }}</p>
+                    <p class="text-xs text-ink-soft">{{ $acuan->pegawai->jabatan?->nama ?? '-' }}</p>
+                </td>
+                <td class="text-ink-soft">{{ $acuan->unitOrganisasi->nama }}</td>
+                <td>{{ $acuan->tanggal_dispensasi->format('d M Y') }}</td>
+                <td class="text-ink-soft">
+                    @foreach ($kelompok->waktu as $w)
+                    <span class="badge badge-default">{{ $w }}</span>
+                    @endforeach
+                </td>
                 <td class="text-ink-soft text-xs">
-                    {{ $d->tanggal_pengajuan->format('d M Y') }}
-                    <span class="block">({{ $d->created_at->diffForHumans() }})</span>
+                    {{ \Carbon\Carbon::parse($kelompok->tanggal_pengajuan)->format('d M Y') }}
                 </td>
                 <td class="text-right whitespace-nowrap">
-                    <a href="{{ route('approval.show', $d) }}" class="btn btn-sm btn-primary">
+                    <a href="{{ route('approval.show', $acuan) }}" class="btn btn-sm btn-primary">
                         <i class="fas fa-eye"></i> Tinjau
                     </a>
                 </td>
@@ -63,13 +72,13 @@
     </table>
 </div>
 
-@if ($dispensasis->isNotEmpty())
+@if ($kelompokPengajuan->isNotEmpty())
 <div class="flex items-center justify-between flex-wrap gap-3 mt-3">
     <p class="text-xs text-ink-soft">
-        Menampilkan {{ $dispensasis->firstItem() }}–{{ $dispensasis->lastItem() }}
-        dari {{ $dispensasis->total() }} pengajuan.
+        Menampilkan {{ $kelompokPengajuan->firstItem() }}–{{ $kelompokPengajuan->lastItem() }}
+        dari {{ $kelompokPengajuan->total() }} kelompok pengajuan.
     </p>
-    {{ $dispensasis->links() }}
+    {{ $kelompokPengajuan->links() }}
 </div>
 @endif
 @endsection

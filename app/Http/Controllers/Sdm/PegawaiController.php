@@ -4,33 +4,20 @@ namespace App\Http\Controllers\Sdm;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StorePegawaiRequest;
-use App\Models\Departemen;
+use App\Models\Jabatan;
 use App\Models\Pegawai;
+use App\Models\UnitOrganisasi;
 use Illuminate\Http\Request;
 
 class PegawaiController extends Controller
 {
-    /**
-     * KF-04 (Kelola Data Pegawai). Pegawai di sini adalah data master
-     * (NIK, nama, jabatan, dst) — BUKAN akun login. Akun login (Admin
-     * Departemen / Manajer Departemen / Asisten Manajer / Admin SDM)
-     * dikelola lewat User & controller "Kelola Data Pengguna" terpisah.
-     */
-    /**
-     * Ditampilkan dikelompokkan per departemen (accordion), bukan tabel
-     * datar dengan pagination — supaya Admin SDM langsung lihat sebaran
-     * pegawai per unit tanpa harus filter satu-satu. Konsekuensinya:
-     * TIDAK ada pagination di sini (paginate per baris pegawai tidak cocok
-     * dengan tampilan berkelompok). Kalau jumlah pegawai sudah sangat besar
-     * (ribuan), ini perlu dioptimasi lagi (mis. lazy-load per departemen).
-     */
     public function index(Request $request)
     {
         $search = $request->input('search');
-        $departemenId = $request->input('departemen_id');
+        $unitOrganisasiId = $request->input('unit_organisasi_id');
         $status = $request->input('status');
 
-        $query = Pegawai::with(['departemen', 'subdepartemen']);
+        $query = Pegawai::with(['jabatan', 'unitOrganisasi']);
 
         if ($search) {
             $query->where(function ($q) use ($search) {
@@ -39,43 +26,74 @@ class PegawaiController extends Controller
             });
         }
 
-        if ($departemenId) {
-            $query->where('departemen_id', $departemenId);
+        if ($unitOrganisasiId) {
+            $unitTerpilih = UnitOrganisasi::find($unitOrganisasiId);
+            $unitIds = $unitTerpilih ? $unitTerpilih->selfAndDescendantIds() : [(int) $unitOrganisasiId];
+            $query->whereIn('unit_organisasi_id', $unitIds);
         }
 
         if ($status && in_array($status, ['aktif', 'nonaktif'], true)) {
             $query->where('status', $status);
         }
 
-        $pegawaiPerDepartemen = $query->orderBy('nama_pegawai')->get()->groupBy('departemen_id');
+        $pegawaiPerUnit = $query->orderBy('nama_pegawai')->get()->groupBy('unit_organisasi_id');
 
-        $departemens = Departemen::orderBy('nama_departemen')->get();
+        $semuaUnit = UnitOrganisasi::active()->orderBy('urutan')->orderBy('nama')->get();
+        $adaFilterAktif = (bool) ($search || $unitOrganisasiId || $status);
 
-        // Kalau lagi search/filter, departemen yang tidak punya hasil sama
-        // sekali disembunyikan (mengurangi noise). Kalau tanpa filter, semua
-        // departemen tetap ditampilkan (termasuk yang 0 pegawai) supaya
-        // Admin SDM bisa lihat cakupan penuh organisasi.
-        $adaFilterAktif = (bool) ($search || $departemenId || $status);
-        if ($adaFilterAktif) {
-            $departemens = $departemens->filter(
-                fn ($d) => $pegawaiPerDepartemen->get($d->id, collect())->isNotEmpty()
-            );
+        $pohonUnit = $this->susunPohonUnit($semuaUnit, null, $pegawaiPerUnit, $adaFilterAktif);
+
+        return view('sdm.pegawai.index', [
+            'pohonUnit'        => $pohonUnit,
+            'unitFlatIndent'   => $this->unitFlatDenganIndentasi($semuaUnit),
+            'search'           => $search,
+            'unitOrganisasiId' => $unitOrganisasiId,
+            'status'           => $status,
+        ]);
+    }
+
+    private function susunPohonUnit($semuaUnit, ?int $parentId, $pegawaiPerUnit, bool $adaFilterAktif): array
+    {
+        $hasil = [];
+
+        foreach ($semuaUnit->where('parent_id', $parentId) as $unit) {
+            $pegawaiUnitIni = $pegawaiPerUnit->get($unit->id, collect());
+            $children = $this->susunPohonUnit($semuaUnit, $unit->id, $pegawaiPerUnit, $adaFilterAktif);
+            $totalTermasukAnak = $pegawaiUnitIni->count() + collect($children)->sum('total_pegawai');
+
+            if ($adaFilterAktif && $totalTermasukAnak === 0) {
+                continue;
+            }
+
+            $hasil[] = [
+                'unit'          => $unit,
+                'pegawai'       => $pegawaiUnitIni,
+                'children'      => $children,
+                'total_pegawai' => $totalTermasukAnak,
+            ];
         }
 
-        return view('sdm.pegawai.index', compact(
-            'pegawaiPerDepartemen',
-            'departemens',
-            'search',
-            'departemenId',
-            'status'
-        ));
+        return $hasil;
+    }
+
+    private function unitFlatDenganIndentasi($semuaUnit, ?int $parentId = null, int $depth = 0): array
+    {
+        $hasil = [];
+
+        foreach ($semuaUnit->where('parent_id', $parentId) as $unit) {
+            $hasil[] = ['unit' => $unit, 'depth' => $depth];
+            $hasil = array_merge($hasil, $this->unitFlatDenganIndentasi($semuaUnit, $unit->id, $depth + 1));
+        }
+
+        return $hasil;
     }
 
     public function create()
     {
-        $departemens = Departemen::with('subdepartemens')->orderBy('nama_departemen')->get();
-
-        return view('sdm.pegawai.create', compact('departemens'));
+        return view('sdm.pegawai.create', [
+            'unitOrganisasis' => UnitOrganisasi::active()->orderBy('tingkat')->orderBy('nama')->get(),
+            'jabatans'        => Jabatan::urut()->get(),
+        ]);
     }
 
     public function store(StorePegawaiRequest $request)
@@ -87,9 +105,11 @@ class PegawaiController extends Controller
 
     public function edit(Pegawai $pegawai)
     {
-        $departemens = Departemen::with('subdepartemens')->orderBy('nama_departemen')->get();
-
-        return view('sdm.pegawai.edit', compact('pegawai', 'departemens'));
+        return view('sdm.pegawai.edit', [
+            'pegawai'         => $pegawai,
+            'unitOrganisasis' => UnitOrganisasi::active()->orderBy('tingkat')->orderBy('nama')->get(),
+            'jabatans'        => Jabatan::urut()->get(),
+        ]);
     }
 
     public function update(StorePegawaiRequest $request, Pegawai $pegawai)
@@ -99,12 +119,6 @@ class PegawaiController extends Controller
         return redirect()->route('sdm.pegawai.index')->with('success', 'Data pegawai berhasil diperbarui.');
     }
 
-    /**
-     * Nonaktifkan (soft), bukan hard delete. Selain praktik umum, migration
-     * dispensasis pakai restrictOnDelete() ke pegawais — kalau pegawai ini
-     * masih punya riwayat dispensasi, hard delete akan ditolak DB. Set
-     * status nonaktif tetap menjaga riwayat & integritas data.
-     */
     public function destroy(Pegawai $pegawai)
     {
         $pegawai->update(['status' => 'nonaktif']);

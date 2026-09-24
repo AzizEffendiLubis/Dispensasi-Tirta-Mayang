@@ -8,33 +8,7 @@
     <h1 class="font-display text-3xl text-ink">Edit Pegawai — {{ $pegawai->nama_pegawai }}</h1>
 </div>
 
-@php
-    $departemenJson = $departemens->map(fn ($d) => [
-        'id' => $d->id,
-        'subdepartemens' => $d->subdepartemens->map(fn ($s) => ['id' => $s->id, 'nama' => $s->nama_subdepartemen]),
-    ]);
-
-    $posisiLabels = [
-        'staf'                                => 'Staf',
-        'asisten_manajer_bidang'              => 'Asisten Manajer Bidang',
-        'manajer'                             => 'Manajer',
-        'senior_manajer_sekper'               => 'Senior Manajer Sekretaris Perusahaan',
-        'senior_manajer_bisnis'               => 'Senior Manajer Bisnis',
-        'senior_manajer_keuangan_pelanggan'   => 'Senior Manajer Keuangan dan Pengelolaan Pelanggan',
-        'senior_manajer_produksi_distribusi'  => 'Senior Manajer Produksi dan Distribusi',
-        'senior_manajer_perencanaan_aset'     => 'Senior Manajer Perencanaan dan Pengelolaan Aset',
-        'kepala_spi'                          => 'Kepala SPI',
-        'sekretaris_spi'                      => 'Sekretaris SPI',
-    ];
-@endphp
-
-<form method="POST" action="{{ route('sdm.pegawai.update', $pegawai) }}" class="card p-6 max-w-3xl"
-      x-data="{
-          departemenId: {{ $pegawai->departemen_id ?? 'null' }},
-          subdepartemenId: {{ $pegawai->subdepartemen_id ?? 'null' }},
-          semuaDepartemen: {{ \Illuminate\Support\Js::from($departemenJson) }},
-          departemenAwal: {{ $pegawai->departemen_id ?? 'null' }},
-      }">
+<form method="POST" action="{{ route('sdm.pegawai.update', $pegawai) }}" class="card p-6 max-w-3xl">
     @csrf
     @method('PUT')
 
@@ -56,51 +30,29 @@
 
     <div class="grid md:grid-cols-2 gap-5 mb-5">
         <div>
-            <label class="field-label" for="jabatan">Jabatan</label>
-            <select id="jabatan" name="jabatan" class="field-input" required>
+            <label class="field-label" for="jabatan_id">Jabatan</label>
+            <select id="jabatan_id" name="jabatan_id" class="field-input" required>
                 <option value="">— Pilih Jabatan —</option>
-                @foreach (\App\Http\Requests\StorePegawaiRequest::PILIHAN_JABATAN as $j)
-                <option value="{{ $j }}" @selected(old('jabatan', $pegawai->jabatan) === $j)>{{ $j }}</option>
+                @foreach ($jabatans as $j)
+                <option value="{{ $j->id }}" @selected((int) old('jabatan_id', $pegawai->jabatan_id) === $j->id)>{{ $j->nama }}</option>
                 @endforeach
             </select>
-            @error('jabatan') <p class="field-error">{{ $message }}</p> @enderror
+            @error('jabatan_id') <p class="field-error">{{ $message }}</p> @enderror
         </div>
 
         <div>
-            <label class="field-label" for="posisi">Posisi</label>
-            <select id="posisi" name="posisi" class="field-input" required>
-                <option value="">— Pilih Posisi —</option>
-                @foreach (\App\Http\Requests\StorePegawaiRequest::PILIHAN_POSISI as $p)
-                <option value="{{ $p }}" @selected(old('posisi', $pegawai->posisi) === $p)>{{ $posisiLabels[$p] ?? $p }}</option>
+            <label class="field-label" for="unit_organisasi_id">Unit Organisasi</label>
+            <select id="unit_organisasi_id" name="unit_organisasi_id" class="field-input" required>
+                <option value="">— Pilih Unit —</option>
+                @foreach ($unitOrganisasis->groupBy('tingkat') as $tingkat => $unitSekelompok)
+                <optgroup label="{{ ucfirst($tingkat) }}">
+                    @foreach ($unitSekelompok as $u)
+                    <option value="{{ $u->id }}" @selected((int) old('unit_organisasi_id', $pegawai->unit_organisasi_id) === $u->id)>{{ $u->nama }}</option>
+                    @endforeach
+                </optgroup>
                 @endforeach
             </select>
-            @error('posisi') <p class="field-error">{{ $message }}</p> @enderror
-        </div>
-    </div>
-
-    <div class="grid md:grid-cols-2 gap-5 mb-5">
-        <div>
-            <label class="field-label" for="departemen_id">Departemen</label>
-            <select id="departemen_id" name="departemen_id" class="field-input"
-                    x-model.number="departemenId"
-                    @change="if (departemenId !== departemenAwal) subdepartemenId = null" required>
-                <option value="">— Pilih Departemen —</option>
-                @foreach ($departemens as $d)
-                <option value="{{ $d->id }}" @selected((int) old('departemen_id', $pegawai->departemen_id) === $d->id)>{{ $d->nama_departemen }}</option>
-                @endforeach
-            </select>
-            @error('departemen_id') <p class="field-error">{{ $message }}</p> @enderror
-        </div>
-
-        <div>
-            <label class="field-label" for="subdepartemen_id">Subdepartemen <span class="text-ink-soft font-normal">(opsional)</span></label>
-            <select id="subdepartemen_id" name="subdepartemen_id" class="field-input" x-model.number="subdepartemenId">
-                <option value="">— Tidak ada —</option>
-                <template x-for="sub in (semuaDepartemen.find(d => d.id === departemenId)?.subdepartemens ?? [])" :key="sub.id">
-                    <option :value="sub.id" x-text="sub.nama"></option>
-                </template>
-            </select>
-            @error('subdepartemen_id') <p class="field-error">{{ $message }}</p> @enderror
+            @error('unit_organisasi_id') <p class="field-error">{{ $message }}</p> @enderror
         </div>
     </div>
 

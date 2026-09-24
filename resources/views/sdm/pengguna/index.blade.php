@@ -14,21 +14,11 @@
 </div>
 
 @php
-    // Label tampilan untuk tiap role. Daftar role itu sendiri diambil dari
-    // StoreUserRequest::ROLE_TERSEDIA (public const) supaya satu sumber
-    // kebenaran dengan validasi — bukan disalin manual di sini.
-    $semuaLabel = [
-        'admin_sdm'                      => 'Admin SDM',
-        'admin_departemen'               => 'Admin Departemen',
-        'manajer_departemen'             => 'Manajer Departemen',
-        'senior_manajer_sekper'          => 'Senior Manajer Sekretaris Perusahaan',
-        'kepala_spi'                     => 'Kepala SPI',
-        'direktur_teknik'                => 'Direktur Teknik',
-        'direktur_administrasi_keuangan' => 'Direktur Administrasi & Keuangan',
-        'direktur_utama'                 => 'Direktur Utama',
+    $roleLabels = [
+        'admin_sdm'        => 'Admin SDM',
+        'admin_departemen' => 'Admin Departemen',
+        'approver'         => 'Approver (Penyetuju)',
     ];
-    $roleLabels = collect(\App\Http\Requests\StoreUserRequest::ROLE_TERSEDIA)
-        ->mapWithKeys(fn ($r) => [$r => $semuaLabel[$r] ?? $r]);
 @endphp
 
 {{-- Filter --}}
@@ -37,7 +27,7 @@
         <label class="text-xs text-ink-soft mb-1 block">Cari (Nama / Email)</label>
         <input type="text" name="search" value="{{ $search }}" class="field-input" placeholder="Ketik nama atau email...">
     </div>
-    <div class="flex-1 min-w-[220px]">
+    <div class="flex-1 min-w-[200px]">
         <label class="text-xs text-ink-soft mb-1 block">Role</label>
         <select name="role" class="field-input">
             <option value="">Semua Role</option>
@@ -47,11 +37,20 @@
         </select>
     </div>
     <div class="flex-1 min-w-[180px]">
-        <label class="text-xs text-ink-soft mb-1 block">Departemen</label>
-        <select name="departemen_id" class="field-input">
-            <option value="">Semua Departemen</option>
-            @foreach ($departemens as $d)
-            <option value="{{ $d->id }}" @selected($departemenId == $d->id)>{{ $d->nama_departemen }}</option>
+        <label class="text-xs text-ink-soft mb-1 block">Jabatan</label>
+        <select name="jabatan_id" class="field-input">
+            <option value="">Semua Jabatan</option>
+            @foreach ($jabatans as $j)
+            <option value="{{ $j->id }}" @selected($jabatanId == $j->id)>{{ $j->nama }}</option>
+            @endforeach
+        </select>
+    </div>
+    <div class="flex-1 min-w-[180px]">
+        <label class="text-xs text-ink-soft mb-1 block">Unit Organisasi</label>
+        <select name="unit_organisasi_id" class="field-input">
+            <option value="">Semua Unit</option>
+            @foreach ($unitOrganisasis as $u)
+            <option value="{{ $u->id }}" @selected($unitOrganisasiId == $u->id)>{{ $u->nama }}</option>
             @endforeach
         </select>
     </div>
@@ -64,7 +63,7 @@
         </select>
     </div>
     <button class="btn btn-primary">Terapkan</button>
-    @if ($search || $role || $departemenId || $status)
+    @if ($search || $role || $jabatanId || $unitOrganisasiId || $status)
     <a href="{{ route('sdm.pengguna.index') }}" class="btn btn-outline">Reset</a>
     @endif
 </form>
@@ -76,7 +75,7 @@
                 <th>Nama</th>
                 <th>Email</th>
                 <th>Role</th>
-                <th>Departemen</th>
+                <th>Jabatan / Unit</th>
                 <th>Status</th>
                 <th></th>
             </tr>
@@ -87,7 +86,7 @@
                 <td class="font-medium">{{ $u->name }}</td>
                 <td class="text-ink-soft">{{ $u->email }}</td>
                 <td>{{ $roleLabels[$u->role] ?? $u->role }}</td>
-                <td class="text-ink-soft">{{ $u->departemen?->nama_departemen ?? '-' }}</td>
+                <td class="text-ink-soft">{{ $u->jabatanLengkap() }}</td>
                 <td>
                     <span class="badge {{ $u->is_active ? 'badge-disetujui' : 'badge-default' }}">
                         {{ $u->is_active ? 'Aktif' : 'Nonaktif' }}

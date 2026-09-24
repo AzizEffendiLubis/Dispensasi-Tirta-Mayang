@@ -9,26 +9,15 @@
 </div>
 
 @php
-    // Label tampilan untuk tiap role. Daftar role & daftar role-yang-butuh-
-    // departemen diambil langsung dari StoreUserRequest (public const),
-    // supaya satu sumber kebenaran dengan validasi di backend.
-    $semuaLabel = [
-        'admin_sdm'                      => 'Admin SDM',
-        'admin_departemen'               => 'Admin Departemen',
-        'manajer_departemen'             => 'Manajer Departemen',
-        'senior_manajer_sekper'          => 'Senior Manajer Sekretaris Perusahaan',
-        'kepala_spi'                     => 'Kepala SPI',
-        'direktur_teknik'                => 'Direktur Teknik',
-        'direktur_administrasi_keuangan' => 'Direktur Administrasi & Keuangan',
-        'direktur_utama'                 => 'Direktur Utama',
+    $roleLabels = [
+        'admin_sdm'        => 'Admin SDM',
+        'admin_departemen' => 'Admin Departemen',
+        'approver'         => 'Approver (Penyetuju)',
     ];
-    $roleLabels = collect(\App\Http\Requests\StoreUserRequest::ROLE_TERSEDIA)
-        ->mapWithKeys(fn ($r) => [$r => $semuaLabel[$r] ?? $r]);
-    $roleDenganDepartemen = \App\Http\Requests\StoreUserRequest::ROLE_DENGAN_DEPARTEMEN;
 @endphp
 
 <form method="POST" action="{{ route('sdm.pengguna.update', $user) }}" class="card p-6 max-w-3xl"
-      x-data="{ role: '{{ old('role', $user->role) }}', roleDenganDepartemen: {{ \Illuminate\Support\Js::from($roleDenganDepartemen) }} }">
+      x-data="{ role: '{{ old('role', $user->role) }}' }">
     @csrf
     @method('PUT')
 
@@ -61,38 +50,60 @@
         </div>
     </div>
 
+    <div class="mb-5">
+        <label class="field-label" for="role">Role</label>
+        <select id="role" name="role" class="field-input" x-model="role" required>
+            <option value="">— Pilih Role —</option>
+            @foreach ($roleLabels as $val => $label)
+            <option value="{{ $val }}" @selected(old('role', $user->role) === $val)>{{ $label }}</option>
+            @endforeach
+        </select>
+        @error('role') <p class="field-error">{{ $message }}</p> @enderror
+    </div>
+
     <div class="grid md:grid-cols-2 gap-5 mb-5">
-        <div>
-            <label class="field-label" for="role">Role</label>
-            <select id="role" name="role" class="field-input" x-model="role" required>
-                <option value="">— Pilih Role —</option>
-                @foreach ($roleLabels as $val => $label)
-                <option value="{{ $val }}" @selected(old('role', $user->role) === $val)>{{ $label }}</option>
+        <div x-show="role === 'approver'" x-cloak>
+            <label class="field-label" for="jabatan_id">Jabatan</label>
+            <select id="jabatan_id" name="jabatan_id" class="field-input">
+                <option value="">— Pilih Jabatan —</option>
+                @foreach ($jabatans as $j)
+                <option value="{{ $j->id }}" @selected((int) old('jabatan_id', $user->jabatan_id) === $j->id)>{{ $j->nama }}</option>
                 @endforeach
             </select>
-            @error('role') <p class="field-error">{{ $message }}</p> @enderror
+            @error('jabatan_id') <p class="field-error">{{ $message }}</p> @enderror
         </div>
 
-        <div x-show="roleDenganDepartemen.includes(role)" x-cloak>
-            <label class="field-label" for="departemen_id">Departemen</label>
-            <select id="departemen_id" name="departemen_id" class="field-input">
-                <option value="">— Pilih Departemen —</option>
-                @foreach ($departemens as $d)
-                <option value="{{ $d->id }}" @selected((int) old('departemen_id', $user->departemen_id) === $d->id)>{{ $d->nama_departemen }}</option>
+        <div x-show="role === 'admin_departemen' || role === 'approver'" x-cloak>
+            <label class="field-label" for="unit_organisasi_id">Unit Organisasi</label>
+            <select id="unit_organisasi_id" name="unit_organisasi_id" class="field-input">
+                <option value="">— Pilih Unit —</option>
+                @foreach ($unitOrganisasis->groupBy('tingkat') as $tingkat => $unitSekelompok)
+                <optgroup label="{{ ucfirst($tingkat) }}">
+                    @foreach ($unitSekelompok as $u)
+                    <option value="{{ $u->id }}" @selected((int) old('unit_organisasi_id', $user->unit_organisasi_id) === $u->id)>{{ $u->nama }}</option>
+                    @endforeach
+                </optgroup>
                 @endforeach
             </select>
             <p class="text-xs text-ink-soft mt-1">
-                Untuk role Manajer Departemen, Senior Manajer Sekper, dan Kepala SPI —
-                hanya boleh ada satu akun aktif per departemen untuk role yang sama.
+                Wajib untuk Admin Departemen. Untuk Approver boleh dikosongkan
+                hanya jika jabatannya lintas-unit (mis. Direktur).
             </p>
-            @error('departemen_id') <p class="field-error">{{ $message }}</p> @enderror
+            @error('unit_organisasi_id') <p class="field-error">{{ $message }}</p> @enderror
         </div>
     </div>
 
-    <div class="mb-5">
-        <label class="field-label" for="keterangan_tambahan">Keterangan Tambahan <span class="text-ink-soft font-normal">(opsional)</span></label>
-        <textarea id="keterangan_tambahan" name="keterangan_tambahan" rows="3" class="field-input">{{ old('keterangan_tambahan', $user->keterangan_tambahan) }}</textarea>
-        @error('keterangan_tambahan') <p class="field-error">{{ $message }}</p> @enderror
+    <div class="mb-5" x-show="role === 'approver'" x-cloak>
+        <div class="flex items-center gap-2">
+            <input type="hidden" name="is_plt" value="0">
+            <input type="checkbox" id="is_plt" name="is_plt" value="1"
+                   @checked(old('is_plt', $user->is_plt)) class="h-4 w-4">
+            <label for="is_plt" class="text-sm text-ink">Sedang menjabat sebagai Plt (Pelaksana Tugas)</label>
+        </div>
+        <p class="text-xs text-ink-soft mt-1">
+            Jika dicentang, jabatan orang ini akan tertulis "Plt. ..." pada surat E-Dispensasi dan tempat lain yang menampilkan jabatannya.
+        </p>
+        @error('is_plt') <p class="field-error">{{ $message }}</p> @enderror
     </div>
 
     <div class="mb-6 flex items-center gap-2">

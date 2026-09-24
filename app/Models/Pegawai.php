@@ -14,23 +14,21 @@ class Pegawai extends Model
     protected $fillable = [
         'nik',
         'nama_pegawai',
-        'jabatan',
-        'posisi',
-        'departemen_id',
-        'subdepartemen_id',
+        'jabatan_id',
+        'unit_organisasi_id',
         'no_telepon',
         'email',
         'status',
     ];
 
-    public function departemen(): BelongsTo
+    public function jabatan(): BelongsTo
     {
-        return $this->belongsTo(Departemen::class);
+        return $this->belongsTo(Jabatan::class);
     }
 
-    public function subdepartemen(): BelongsTo
+    public function unitOrganisasi(): BelongsTo
     {
-        return $this->belongsTo(Subdepartemen::class);
+        return $this->belongsTo(UnitOrganisasi::class);
     }
 
     public function dispensasis(): HasMany
@@ -48,19 +46,14 @@ class Pegawai extends Model
         return $query->where('status', 'nonaktif');
     }
 
-    public function scopeDepartemen($query, int $departemenId)
+    public function scopeUnit($query, int $unitOrganisasiId)
     {
-        return $query->where('departemen_id', $departemenId);
+        return $query->where('unit_organisasi_id', $unitOrganisasiId);
     }
 
-    public function scopeSubdepartemen($query, int $subdepartemenId)
+    public function scopeJabatan($query, int $jabatanId)
     {
-        return $query->where('subdepartemen_id', $subdepartemenId);
-    }
-
-    public function scopePosisi($query, string $posisi)
-    {
-        return $query->where('posisi', $posisi);
+        return $query->where('jabatan_id', $jabatanId);
     }
 
     public function isAktif(): bool
@@ -73,23 +66,16 @@ class Pegawai extends Model
         return $this->status === 'nonaktif';
     }
 
-    public function isManajer(): bool
+    public function carikanApprover(int $urutan = 1): ?User
     {
-        return $this->posisi === 'manajer';
-    }
+        if (! $this->unit_organisasi_id || ! $this->jabatan_id) {
+            return null;
+        }
 
-    public function isSeniorManajerSekper(): bool
-    {
-        return $this->posisi === 'senior_manajer_sekper';
-    }
-
-    public function isKepalaSpi(): bool
-    {
-        return $this->posisi === 'kepala_spi';
-    }
-
-    public function isPosisiPuncakDepartemen(): bool
-    {
-        return in_array($this->posisi, ['manajer', 'senior_manajer_sekper', 'kepala_spi']);
+        return AlurApproval::carikanApprover(
+            $this->unitOrganisasi ?? $this->unitOrganisasi()->firstOrFail(),
+            $this->jabatan ?? $this->jabatan()->firstOrFail(),
+            $urutan
+        );
     }
 }

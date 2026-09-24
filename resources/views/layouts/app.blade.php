@@ -258,31 +258,21 @@
 
 @auth
     @php
-        // dashboardRoute() ada di App\Models\User — arahnya beda per role.
         $dashboardUrl = auth()->user()->dashboardRoute();
 
-        // Route-route dashboard untuk 6 role pemberi keputusan — semua sekarang
-        // mengarah ke ApprovalController@index yang sama (lihat routes/web.php).
-        // Dipakai bareng supaya menu "Persetujuan" tidak perlu 6 blok @if terpisah.
+        // Dulu daftar ini berisi satu nama route dashboard per role
+        // (dashboard.manajer, dashboard.kepala-spi, dst.) karena role
+        // di-hardcode per jabatan. Sekarang semua approver berbagi SATU
+        // dashboard generik (dashboard.approver), jadi daftarnya cukup
+        // dua entri saja.
         $rutePersetujuan = [
-            'dashboard.manajer',
-            'dashboard.senior-manajer-sekper',
-            'dashboard.kepala-spi',
-            'dashboard.direktur-teknik',
-            'dashboard.direktur-administrasi-keuangan',
-            'dashboard.direktur-utama',
+            'dashboard.approver',
             'approval.*',
         ];
     @endphp
 
-    {{-- ══════════════════════════════════════
-         SIDEBAR OVERLAY (mobile)
-    ══════════════════════════════════════ --}}
     <div class="sidebar-overlay" :class="{ 'open': sidebarOpen }" @click="sidebarOpen = false"></div>
 
-    {{-- ══════════════════════════════════════
-         SIDEBAR
-    ══════════════════════════════════════ --}}
     <aside class="sidebar" :class="{ 'open': sidebarOpen }">
 
         <div class="sidebar-brand flex items-center gap-3 px-4 border-b border-line" style="height: var(--topbar-h); flex-shrink:0; background: #d9f5f8;">
@@ -341,24 +331,41 @@
             </a>
             @endif
 
-            @if (Route::has('sdm.departemen.index'))
-            <a href="{{ route('sdm.departemen.index') }}" class="nav-link {{ request()->routeIs('sdm.departemen.*') ? 'active' : '' }}">
-                <i class="fas fa-sitemap"></i><span>Struktur Departemen</span>
-            </a>
-            @endif
-
             @if (Route::has('sdm.monitoring.index'))
             <a href="{{ route('sdm.monitoring.index') }}" class="nav-link {{ request()->routeIs('sdm.monitoring.*') ? 'active' : '' }}">
                 <i class="fas fa-chart-line"></i><span>Monitoring Dispensasi</span>
             </a>
             @endif
 
-            {{-- Kelola Data Pengguna: akun Admin Departemen / Manajer Departemen /
-                 Senior Manajer Sekper / Kepala SPI / Direktur — semua role yang
-                 memberi keputusan atau mengelola sistem. --}}
+            @if (Route::has('sdm.arsip-e-dispensasi.index'))
+            <a href="{{ route('sdm.arsip-e-dispensasi.index') }}" class="nav-link {{ request()->routeIs('sdm.arsip-e-dispensasi.*') ? 'active' : '' }}">
+                <i class="fas fa-box-archive"></i><span>Arsip E-Dispensasi</span>
+            </a>
+            @endif
+
             @if (Route::has('sdm.pengguna.index'))
             <a href="{{ route('sdm.pengguna.index') }}" class="nav-link {{ request()->routeIs('sdm.pengguna.*') ? 'active' : '' }}">
                 <i class="fas fa-users-gear"></i><span>Manajemen Pengguna</span>
+            </a>
+            @endif
+
+            <div class="nav-section-label">Master Data</div>
+
+            @if (Route::has('sdm.jabatan.index'))
+            <a href="{{ route('sdm.jabatan.index') }}" class="nav-link {{ request()->routeIs('sdm.jabatan.*') ? 'active' : '' }}">
+                <i class="fas fa-id-badge"></i><span>Jabatan</span>
+            </a>
+            @endif
+
+            @if (Route::has('sdm.unit-organisasi.index'))
+            <a href="{{ route('sdm.unit-organisasi.index') }}" class="nav-link {{ request()->routeIs('sdm.unit-organisasi.*') ? 'active' : '' }}">
+                <i class="fas fa-sitemap"></i><span>Unit Organisasi</span>
+            </a>
+            @endif
+
+            @if (Route::has('sdm.alur-approval.index'))
+            <a href="{{ route('sdm.alur-approval.index') }}" class="nav-link {{ request()->routeIs('sdm.alur-approval.*') ? 'active' : '' }}">
+                <i class="fas fa-route"></i><span>Alur Approval</span>
             </a>
             @endif
             @endif
@@ -384,11 +391,6 @@
                     <i class="fas fa-right-from-bracket"></i><span class="font-semibold">Log Out</span>
                 </button>
 
-                {{-- Diteleport ke <body> supaya tidak terjebak di dalam .sidebar —
-                     .sidebar punya `transform`, dan elemen `position: fixed` di
-                     dalam ancestor yang punya transform akan mengambil ancestor
-                     itu sebagai containing block, bukan viewport. Itu sebabnya
-                     popup ini sebelumnya tampil terpotong di dalam sidebar. --}}
                 <template x-teleport="body">
                     <div x-show="confirmOpen" x-cloak
                          x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
@@ -430,11 +432,8 @@
         </div>
 
         <div class="flex items-center gap-3 sm:gap-4">
-            {{-- Notifikasi. Membutuhkan tabel `notifications` (php artisan
-                 notifications:table) — kalau belum dijalankan, unreadNotifications
-                 akan error. --}}
             <div class="relative" x-data="{ open: false }">
-                <button @click="open = !open; if (open) { fetch('{{ Route::has('notifikasi.markAllRead') ? route('notifikasi.markAllRead') : '#' }}', { method: 'POST', headers: { 'X-CSRF-TOKEN': '{{ csrf_token() }}' } }) }"
+                <button @click="open = !open"
                         class="topbar-icon-btn relative transition-colors h-9 w-9 rounded-lg flex items-center justify-center">
                     <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>
@@ -450,9 +449,19 @@
                 <div x-show="open" @click.outside="open = false" x-cloak
                     x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 scale-95 -translate-y-1" x-transition:enter-end="opacity-100 scale-100 translate-y-0"
                     class="absolute right-0 mt-3 w-80 bg-white border border-line rounded-xl2 shadow-lg z-20 max-h-96 overflow-y-auto">
-                    <div class="px-4 py-3 border-b border-line font-semibold text-sm text-primary bg-primary-light sticky top-0">Notifikasi</div>
+                    <div class="px-4 py-3 border-b border-line font-semibold text-sm text-primary bg-primary-light sticky top-0 flex items-center justify-between">
+                        <span>Notifikasi</span>
+                        @if (auth()->user()->unreadNotifications->count() > 0 && Route::has('notifikasi.markAllRead'))
+                        <form method="POST" action="{{ route('notifikasi.markAllRead') }}">
+                            @csrf
+                            <button type="submit" class="text-xs font-normal text-accent hover:underline">
+                                Tandai semua terbaca
+                            </button>
+                        </form>
+                        @endif
+                    </div>
                     @forelse (auth()->user()->notifications->take(6) as $notif)
-                    <a href="{{ $notif->data['url'] ?? '#' }}"
+                    <a href="{{ Route::has('notifikasi.buka') ? route('notifikasi.buka', $notif) : ($notif->data['url'] ?? '#') }}"
                        class="relative block px-4 py-3 pl-5 border-b border-line text-sm hover:bg-canvas transition-colors {{ $notif->read_at ? 'text-ink-soft' : 'text-ink font-medium' }}">
                         @unless ($notif->read_at)
                         <span class="absolute left-0 top-0 bottom-0 w-[3px]" style="background: #0a2f5c;"></span>

@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Sdm;
 
 use App\Http\Controllers\Controller;
-use App\Models\Departemen;
 use App\Models\Dispensasi;
+use App\Models\UnitOrganisasi;
 use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -18,10 +18,10 @@ class DashboardController extends Controller
     public function index(Request $request)
     {
         $tahun = (int) $request->input('tahun', now()->year);
-        $departemenId = $request->input('departemen_id');
+        $unitOrganisasiId = $request->input('unit_organisasi_id');
         $status = $request->input('status');
 
-        $base = $this->buildFilteredQuery($tahun, $departemenId, $status);
+        $base = $this->buildFilteredQuery($tahun, $unitOrganisasiId, $status);
 
         // Total per status
         $statusCounts = (clone $base)
@@ -45,31 +45,21 @@ class DashboardController extends Controller
             'total' => (int) ($jumlahPerBulanRaw[$bulan] ?? 0),
         ]);
 
-        // Dispensasi per departemen
-        $perDepartemen = (clone $base)
-            ->join('departemens', 'departemens.id', '=', 'dispensasis.departemen_id')
-            ->select('departemens.id', 'departemens.nama_departemen', DB::raw('COUNT(*) as total'))
-            ->groupBy('departemens.id', 'departemens.nama_departemen')
-            ->orderByDesc('total')
-            ->get()
-            ->map(fn ($row) => [
-                'id'    => $row->id,
-                'nama'  => $row->nama_departemen,
-                'total' => (int) $row->total,
-            ]);
+        // Dispensasi per unit organisasi — termasuk rollup dari unit turunan
+        $perUnit = $this->getPerUnitRollup($tahun, $unitOrganisasiId, $status);
 
         // Dispensasi terbaru
         $terbaru = (clone $base)
-            ->with(['pegawai', 'departemen', 'subdepartemen', 'diprosesOleh'])
+            ->with(['pegawai', 'unitOrganisasi', 'diprosesOleh'])
             ->orderByDesc('created_at')
             ->limit(10)
             ->get();
 
         // Pengajuan menggantung (perlu perhatian)
-        $pengajuanMenggantung = $this->getPengajuanMenggantung($departemenId);
+        $pengajuanMenggantung = $this->getPengajuanMenggantung($unitOrganisasiId);
 
         // Data untuk filter
-        $departemens = Departemen::orderBy('nama_departemen')->get();
+        $unitOrganisasis = UnitOrganisasi::active()->orderBy('nama')->get();
         $tahunTersedia = $this->getTahunTersedia();
 
         return view('dashboard.sdm', compact(
@@ -78,23 +68,23 @@ class DashboardController extends Controller
             'totalDisetujui',
             'totalDitolak',
             'perBulan',
-            'perDepartemen',
+            'perUnit',
             'terbaru',
             'pengajuanMenggantung',
-            'departemens',
+            'unitOrganisasis',
             'tahunTersedia',
             'tahun',
-            'departemenId',
+            'unitOrganisasiId',
             'status'
         ));
     }
 
-    private function buildFilteredQuery(int $tahun, $departemenId, $status): Builder
+    private function buildFilteredQuery(int $tahun, $unitOrganisasiId, $status): Builder
     {
         $query = Dispensasi::query()->whereYear('tanggal_dispensasi', $tahun);
 
-        if ($departemenId) {
-            $query->where('departemen_id', $departemenId);
+        if ($unitOrganisasiId) {
+            $query->where('unit_organisasi_id', $unitOrganisasiId);
         }
 
         if ($status && in_array($status, ['menunggu_persetujuan', 'disetujui', 'ditolak'], true)) {
@@ -102,6 +92,53 @@ class DashboardController extends Controller
         }
 
         return $query;
+    }
+
+    private function getPerUnitRollup(int $tahun, $unitOrganisasiId, $status)
+    {
+        $langsung = Dispensasi::whereYear('tanggal_dispensasi', $tahun)
+            ->when(
+                $status && in_array($status, ['menunggu_persetujuan', 'disetujui', 'ditolak'], true),
+                fn ($q) => $q->where('status_pengajuan', $status)
+            )
+            ->select('unit_organisasi_id', DB::raw('COUNT(*) as total'))
+            ->groupBy('unit_organisasi_id')
+            ->pluck('total', 'unit_organisasi_id');
+
+        $units = UnitOrganisasi::select('id', 'parent_id', 'nama')->active()->get();
+        $anakPerInduk = $units->groupBy('parent_id');
+
+        $hitungRollup = function ($unitId) use (&$hitungRollup, $anakPerInduk, $langsung) {
+            $total = (int) ($langsung[$unitId] ?? 0);
+            foreach ($anakPerInduk->get($unitId, collect()) as $anak) {
+                $total += $hitungRollup($anak->id);
+            }
+            return $total;
+        };
+
+        $idDenganTurunan = function ($unitId) use (&$idDenganTurunan, $anakPerInduk) {
+            $hasil = [$unitId];
+            foreach ($anakPerInduk->get($unitId, collect()) as $anak) {
+                $hasil = array_merge($hasil, $idDenganTurunan($anak->id));
+            }
+            return $hasil;
+        };
+
+        $unitTampil = $units;
+
+        if ($unitOrganisasiId && $units->contains('id', (int) $unitOrganisasiId)) {
+            $unitTampil = $units->whereIn('id', $idDenganTurunan((int) $unitOrganisasiId));
+        }
+
+        return $unitTampil
+            ->map(fn ($unit) => [
+                'id'    => $unit->id,
+                'nama'  => $unit->nama,
+                'total' => $hitungRollup($unit->id),
+            ])
+            ->filter(fn ($row) => $row['total'] > 0)
+            ->sortByDesc('total')
+            ->values();
     }
 
     private function getTahunTersedia(): array
@@ -122,14 +159,14 @@ class DashboardController extends Controller
         return $tahun;
     }
 
-    private function getPengajuanMenggantung($departemenId)
+    private function getPengajuanMenggantung($unitOrganisasiId)
     {
         $query = Dispensasi::where('status_pengajuan', 'menunggu_persetujuan')
             ->where('tanggal_pengajuan', '<=', now()->subDays(self::AMBANG_HARI_MENGGANTUNG)->toDateString())
-            ->with(['pegawai', 'departemen']);
+            ->with(['pegawai', 'unitOrganisasi']);
 
-        if ($departemenId) {
-            $query->where('departemen_id', $departemenId);
+        if ($unitOrganisasiId) {
+            $query->where('unit_organisasi_id', $unitOrganisasiId);
         }
 
         return $query->orderBy('tanggal_pengajuan')
@@ -137,7 +174,7 @@ class DashboardController extends Controller
             ->map(fn ($d) => [
                 'nomor' => $d->nomor_dispensasi,
                 'pegawai' => $d->pegawai?->nama_pegawai ?? '-',
-                'departemen' => $d->departemen?->nama_departemen ?? '-',
+                'unit' => $d->unitOrganisasi?->nama ?? '-',
                 'hari_menunggu' => now()->diffInDays($d->tanggal_pengajuan),
             ]);
     }

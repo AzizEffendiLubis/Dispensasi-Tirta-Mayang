@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\Route;
 
 class User extends Authenticatable
 {
@@ -17,8 +18,9 @@ class User extends Authenticatable
         'email',
         'password',
         'role',
-        'departemen_id',
-        'subdepartemen_id',
+        'jabatan_id',
+        'unit_organisasi_id',
+        'is_plt',
         'is_active',
         'must_change_password',
     ];
@@ -34,18 +36,19 @@ class User extends Authenticatable
             'email_verified_at'    => 'datetime',
             'password'             => 'hashed',
             'is_active'            => 'boolean',
+            'is_plt'               => 'boolean',
             'must_change_password' => 'boolean',
         ];
     }
 
-    public function departemen(): BelongsTo
+    public function jabatan(): BelongsTo
     {
-        return $this->belongsTo(Departemen::class);
+        return $this->belongsTo(Jabatan::class);
     }
 
-    public function subdepartemen(): BelongsTo
+    public function unitOrganisasi(): BelongsTo
     {
-        return $this->belongsTo(Subdepartemen::class);
+        return $this->belongsTo(UnitOrganisasi::class);
     }
 
     public function dispensasiDiinput(): HasMany
@@ -58,21 +61,27 @@ class User extends Authenticatable
         return $this->hasMany(Dispensasi::class, 'diproses_oleh_id');
     }
 
+    public function dispensasiMenungguSaya(): HasMany
+    {
+        return $this->hasMany(Dispensasi::class, 'approver_saat_ini_id')
+            ->where('status_pengajuan', 'menunggu_persetujuan');
+    }
+
+    public function suratDiterbitkan(): HasMany
+    {
+        return $this->hasMany(Dispensasi::class, 'dicetak_oleh_id');
+    }
+
     public function dashboardRoute(): string
     {
         $routeName = match ($this->role) {
-            'admin_sdm'                       => 'sdm.dashboard',
-            'admin_departemen'                => 'dispensasi.index',
-            'manajer_departemen'              => 'dashboard.manajer',
-            'senior_manajer_sekper'           => 'dashboard.senior-manajer-sekper',
-            'kepala_spi'                      => 'dashboard.kepala-spi',
-            'direktur_teknik'                 => 'dashboard.direktur-teknik',
-            'direktur_administrasi_keuangan'  => 'dashboard.direktur-administrasi-keuangan',
-            'direktur_utama'                  => 'dashboard.direktur-utama',
-            default                           => null,
+            'admin_sdm'        => 'sdm.dashboard',
+            'admin_departemen' => 'dispensasi.index',
+            'approver'         => 'dashboard.approver',
+            default            => null,
         };
 
-        if ($routeName && \Illuminate\Support\Facades\Route::has($routeName)) {
+        if ($routeName && Route::has($routeName)) {
             return route($routeName);
         }
 
@@ -89,46 +98,32 @@ class User extends Authenticatable
         return $this->role === 'admin_departemen';
     }
 
-    public function isManajerDepartemen(): bool
+    public function isApprover(): bool
     {
-        return $this->role === 'manajer_departemen';
-    }
-
-    public function isSeniorManajerSekper(): bool
-    {
-        return $this->role === 'senior_manajer_sekper';
-    }
-
-    public function isKepalaSpi(): bool
-    {
-        return $this->role === 'kepala_spi';
-    }
-
-    public function isDirekturTeknik(): bool
-    {
-        return $this->role === 'direktur_teknik';
-    }
-
-    public function isDirekturAdministrasiKeuangan(): bool
-    {
-        return $this->role === 'direktur_administrasi_keuangan';
-    }
-
-    public function isDirekturUtama(): bool
-    {
-        return $this->role === 'direktur_utama';
+        return $this->role === 'approver';
     }
 
     public function isPemberiKeputusan(): bool
     {
-        return in_array($this->role, [
-            'manajer_departemen',
-            'senior_manajer_sekper',
-            'kepala_spi',
-            'direktur_teknik',
-            'direktur_administrasi_keuangan',
-            'direktur_utama',
-        ]);
+        return $this->isApprover();
+    }
+
+    public function jabatanLengkap(): string
+    {
+        if ($this->role === 'admin_sdm') {
+            return 'Admin SDM';
+        }
+
+        if ($this->role === 'admin_departemen') {
+            return 'Admin Departemen';
+        }
+
+        $namaJabatan = $this->jabatan?->nama ?? $this->name;
+        $namaUnit = $this->unitOrganisasi?->nama;
+
+        $label = $namaUnit ? "{$namaJabatan} {$namaUnit}" : $namaJabatan;
+
+        return $this->is_plt ? "Plt. {$label}" : $label;
     }
 
     public function scopeActive($query)
@@ -139,5 +134,37 @@ class User extends Authenticatable
     public function scopeRole($query, string $role)
     {
         return $query->where('role', $role);
+    }
+
+    public function hasJabatanKode(string $kode): bool
+    {
+        return $this->jabatan?->kode === $kode;
+    }
+
+    public function scopeJabatanKode($query, string $kode)
+    {
+        return $query->whereHas('jabatan', fn ($q) => $q->where('kode', $kode));
+    }
+
+  
+    public static function approverUntuk(int $jabatanId, UnitOrganisasi $unit): ?self
+    {
+        foreach ($unit->selfAndAncestors() as $unitAcuan) {
+            $user = self::query()
+                ->active()
+                ->where('jabatan_id', $jabatanId)
+                ->where('unit_organisasi_id', $unitAcuan->id)
+                ->first();
+
+            if ($user) {
+                return $user;
+            }
+        }
+
+        return self::query()
+            ->active()
+            ->where('jabatan_id', $jabatanId)
+            ->whereNull('unit_organisasi_id')
+            ->first();
     }
 }

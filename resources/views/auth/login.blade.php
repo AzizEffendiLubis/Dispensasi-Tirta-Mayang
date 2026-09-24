@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <title>Sistem Informasi Dispensasi — Masuk</title>
+    <title>Sistem Informasi Dispensasi - Masuk</title>
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -568,7 +568,7 @@
 
                     <span class="eyebrow"><i class="fas fa-shield-halved" aria-hidden="true"></i> Portal Internal Pegawai</span>
 
-                    <h2>Sistem Informasi Dispensasi Pegawai</h2>
+                    <h2>Sistem Informasi Dispensasi</h2>
 
                     <p>
                         Dulu urus izin dispensasi harus ke HRD dan isi formulir kertas.
@@ -651,7 +651,7 @@
 
                     <h1>Masuk</h1>
 
-                    <p>Login pakai email dan password akun Anda.</p>
+                    <p>Masuk pakai email dan password akun Anda.</p>
 
                 </div>
 

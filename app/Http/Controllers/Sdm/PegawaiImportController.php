@@ -3,9 +3,9 @@
 namespace App\Http\Controllers\Sdm;
 
 use App\Http\Controllers\Controller;
-use App\Models\Departemen;
+use App\Models\Jabatan;
 use App\Models\Pegawai;
-use App\Models\Subdepartemen;
+use App\Models\UnitOrganisasi;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -14,13 +14,13 @@ use Maatwebsite\Excel\Facades\Excel;
 class PegawaiImportController extends Controller
 {
     private const TARGET_FIELDS = [
-        'nik'              => 'NIK',
-        'nama'             => 'Nama Pegawai',
-        'jabatan'          => 'Jabatan',
-        'departemen'       => 'Departemen',
-        'subdepartemen'    => 'Subdepartemen',
-        'no_telepon'       => 'No. Telepon',
-        'email'            => 'Email',
+        'nik'           => 'NIK',
+        'nama'          => 'Nama Pegawai',
+        'jabatan'       => 'Jabatan',
+        'departemen'    => 'Departemen',
+        'subdepartemen' => 'Subdepartemen',
+        'no_telepon'    => 'No. Telepon',
+        'email'         => 'Email',
     ];
 
     public function form()
@@ -73,10 +73,12 @@ class PegawaiImportController extends Controller
         $rows = Excel::toArray(null, Storage::disk('local')->path($path))[0] ?? [];
         $dataRows = array_slice($rows, 1);
 
+        $jabatanDefault = Jabatan::where('kode', 'staf')->first();
+
         $sukses = 0;
         $gagal = [];
 
-        DB::transaction(function () use ($dataRows, $mapping, &$sukses, &$gagal) {
+        DB::transaction(function () use ($dataRows, $mapping, $jabatanDefault, &$sukses, &$gagal) {
             foreach ($dataRows as $i => $row) {
                 $baris = $i + 2;
 
@@ -98,34 +100,41 @@ class PegawaiImportController extends Controller
                     continue;
                 }
 
-                $departemen = $namaDept ? $this->cariDepartemen($namaDept) : null;
-                if (! $departemen) {
+                $unitDepartemen = $namaDept ? $this->cariUnit($namaDept, 'departemen') : null;
+                if (! $unitDepartemen) {
                     $gagal[] = "Baris {$baris}: departemen '{$namaDept}' tidak dikenali sistem atau kosong, baris dilewati.";
                     continue;
                 }
 
-                $subdepartemen = $namaSub ? $this->cariSubdepartemen($namaSub, $namaDept) : null;
-                if ($namaSub && ! $subdepartemen) {
-                    $gagal[] = "Baris {$baris}: subdepartemen '{$namaSub}' tidak dikenali sistem, pegawai dibuat tanpa penempatan subdepartemen.";
+                $unitSubdepartemen = null;
+                if ($namaSub) {
+                    $unitSubdepartemen = $this->cariUnit($namaSub, 'subdepartemen', $unitDepartemen->id);
+                    if (! $unitSubdepartemen) {
+                        $gagal[] = "Baris {$baris}: subdepartemen '{$namaSub}' tidak dikenali sistem di bawah departemen '{$namaDept}', pegawai ditempatkan langsung di departemen.";
+                    }
                 }
 
-                $jabatan = collect(\App\Http\Requests\StorePegawaiRequest::PILIHAN_JABATAN)
-                    ->first(fn ($j) => strtolower($j) === strtolower((string) $jabatanRaw));
+                $unitTujuan = $unitSubdepartemen ?? $unitDepartemen;
 
+                $jabatan = $jabatanRaw ? $this->cariJabatan($jabatanRaw) : null;
                 if (! $jabatan) {
-                    $jabatan = 'Staf';
+                    $jabatan = $jabatanDefault;
                     $gagal[] = "Baris {$baris}: jabatan '{$jabatanRaw}' tidak dikenali sistem, diset ke 'Staf' — cek & koreksi manual kalau perlu.";
                 }
 
+                if (! $jabatan) {
+                    $gagal[] = "Baris {$baris}: jabatan default 'Staf' belum ada di master Jabatan, baris dilewati. Tambahkan dulu jabatan 'Staf' lewat menu Jabatan.";
+                    continue;
+                }
+
                 Pegawai::create([
-                    'nik'              => $nik,
-                    'nama_pegawai'     => $nama,
-                    'jabatan'          => $jabatan,
-                    'departemen_id'    => $departemen->id,
-                    'subdepartemen_id' => $subdepartemen?->id,
-                    'no_telepon'       => $noTelepon,
-                    'email'            => $email,
-                    'status'           => 'aktif',
+                    'nik'                 => $nik,
+                    'nama_pegawai'        => $nama,
+                    'jabatan_id'          => $jabatan->id,
+                    'unit_organisasi_id'  => $unitTujuan->id,
+                    'no_telepon'          => $noTelepon,
+                    'email'               => $email,
+                    'status'              => 'aktif',
                 ]);
 
                 $sukses++;
@@ -202,35 +211,36 @@ class PegawaiImportController extends Controller
         return $suggestion;
     }
 
-    private function cariDepartemen(string $namaDept): ?Departemen
+    /**
+     * Cari unit organisasi berdasarkan nama/kode pada tingkat tertentu,
+     * opsional dibatasi di bawah satu parent (mis. subdepartemen harus
+     * berada di bawah departemen yang sudah ditemukan).
+     */
+    private function cariUnit(string $nama, string $tingkat, ?int $parentId = null): ?UnitOrganisasi
     {
-        $normal = $this->normalisasiNamaOrganisasi($namaDept);
+        $normal = $this->normalisasiNamaOrganisasi($nama);
 
-        return Departemen::where(function ($q) use ($namaDept, $normal) {
-            $q->whereRaw('LOWER(kode_departemen) = ?', [strtolower($namaDept)])
-              ->orWhereRaw('LOWER(nama_departemen) = ?', [strtolower($namaDept)])
-              ->orWhereRaw('LOWER(nama_departemen) LIKE ?', ['%' . $normal . '%']);
-        })->first();
-    }
+        $query = UnitOrganisasi::where('tingkat', $tingkat)
+            ->where(function ($q) use ($nama, $normal) {
+                $q->whereRaw('LOWER(kode) = ?', [strtolower($nama)])
+                  ->orWhereRaw('LOWER(nama) = ?', [strtolower($nama)])
+                  ->orWhereRaw('LOWER(nama) LIKE ?', ['%' . $normal . '%']);
+            });
 
-    private function cariSubdepartemen(string $namaSub, ?string $namaDept): ?Subdepartemen
-    {
-        $normalSub = $this->normalisasiNamaOrganisasi($namaSub);
-
-        $query = Subdepartemen::where(function ($q) use ($namaSub, $normalSub) {
-            $q->whereRaw('LOWER(kode_subdepartemen) = ?', [strtolower($namaSub)])
-              ->orWhereRaw('LOWER(nama_subdepartemen) = ?', [strtolower($namaSub)])
-              ->orWhereRaw('LOWER(nama_subdepartemen) LIKE ?', ['%' . $normalSub . '%']);
-        });
-
-        if ($namaDept) {
-            $departemen = $this->cariDepartemen($namaDept);
-            if ($departemen) {
-                $query->where('departemen_id', $departemen->id);
-            }
+        if ($parentId) {
+            $query->where('parent_id', $parentId);
         }
 
         return $query->first();
+    }
+
+    private function cariJabatan(string $namaJabatan): ?Jabatan
+    {
+        $namaLower = strtolower(trim($namaJabatan));
+
+        return Jabatan::whereRaw('LOWER(kode) = ?', [$namaLower])
+            ->orWhereRaw('LOWER(nama) = ?', [$namaLower])
+            ->first();
     }
 
     private function normalisasiNamaOrganisasi(string $nama): string
