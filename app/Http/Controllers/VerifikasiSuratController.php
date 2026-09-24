@@ -3,9 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Models\Dispensasi;
+use App\Support\Concerns\MenyusunDataSuratEDispensasi;
 
 class VerifikasiSuratController extends Controller
 {
+    use MenyusunDataSuratEDispensasi;
+
     private const URUTAN_WAKTU = ['T', 'TBO', 'TBI', 'CP'];
 
     public function show(string $token)
@@ -18,32 +21,21 @@ class VerifikasiSuratController extends Controller
             return view('verifikasi.tidak-ditemukan');
         }
 
-        $kelompokDispensasi = Dispensasi::query()
-            ->satuSurat($dispensasi->nomor_surat_dispensasi)
-            ->with('pegawai')
-            ->orderBy('pegawai_id')
-            ->orderByRaw("FIELD(waktu_dispensasi, 'T','TBO','TBI','CP')")
-            ->get();
+        $data = $this->siapkanDataSuratEDispensasi($dispensasi);
 
-        $barisPegawai = $kelompokDispensasi
-            ->groupBy('pegawai_id')
-            ->map(function ($barisWaktu) {
-                $acuan = $barisWaktu->first();
-                return (object) [
-                    'pegawai' => $acuan->pegawai,
-                    'waktu'   => $barisWaktu->pluck('waktu_dispensasi')
-                        ->sortBy(fn ($w) => array_search($w, self::URUTAN_WAKTU))
-                        ->values(),
-                ];
-            })
-            ->values();
+        $barisPegawai = $data['barisHalamanUtama']->concat($data['barisLampiran'])->values();
 
-        $waktuList = $kelompokDispensasi->pluck('waktu_dispensasi')->unique()
+        $waktuList = $barisPegawai
+            ->flatMap(fn ($baris) => $baris->waktu)
+            ->unique()
             ->sortBy(fn ($w) => array_search($w, self::URUTAN_WAKTU))
             ->values();
 
-        $adaDivisi = $dispensasi->unitOrganisasi?->parent !== null;
-
-        return view('verifikasi.surat', compact('dispensasi', 'barisPegawai', 'waktuList', 'adaDivisi'));
+        return view('verifikasi.surat', [
+            'dispensasi'     => $dispensasi,
+            'barisPegawai'   => $barisPegawai,
+            'waktuList'      => $waktuList,
+            'unitBarisUtama' => $data['unitBarisUtama'],
+        ]);
     }
 }

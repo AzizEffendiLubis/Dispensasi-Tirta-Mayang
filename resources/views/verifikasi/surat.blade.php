@@ -35,11 +35,12 @@
             </h3>
             <dl class="grid sm:grid-cols-2 gap-4 text-sm mb-4">
                 <div class="sm:col-span-2">
-                    <dt class="text-xs text-ink-soft mb-0.5">Departemen</dt>
+                    <dt class="text-xs text-ink-soft mb-0.5">Unit Organisasi</dt>
                     <dd class="text-ink">
-                        {{ $dispensasi->departemen->nama_departemen }}
-                        @if($dispensasi->subdepartemen)
-                            / {{ $dispensasi->subdepartemen->nama_subdepartemen }}
+                        @if ($unitBarisUtama)
+                            {{ $unitBarisUtama->labelTingkat() }} {{ $unitBarisUtama->nama }}
+                        @else
+                            -
                         @endif
                     </dd>
                 </div>
